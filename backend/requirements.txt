@@ -1,0 +1,9 @@
+# Backend dependencies for the document-processing pipeline.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+python-multipart>=0.0.9   # required by FastAPI for multipart/form-data uploads
+pydantic>=2.6
+openai>=1.30              # OpenAI-compatible client pointed at LM Studio
+PyMuPDF>=1.24             # PDF -> image rasterization (imports as `fitz`)
+pdf2image>=1.17           # alternative PDF rasterizer (kept per the brief)
+Pillow>=10.0             # image normalization to PNG
