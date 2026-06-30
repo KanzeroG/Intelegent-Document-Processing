@@ -2,21 +2,10 @@
 
 These models define the exact shape the vision model must return. We feed each
 model's JSON schema into the extraction prompt, then validate the model's reply
-against it.
-
-Field names mirror the columns in the project's `ground_truth.csv` so the
-field-level accuracy evaluation lines up without any renaming:
-
-    doc_id, doc_type, doc_number, vendor, buyer, doc_date, currency,
-    line_item_count, subtotal, tax_amount, total_amount, line_items
-
-(`doc_id` is the evaluation key supplied by the dataset, not something we
-extract, so it is not part of the extraction schema.)
-
-Document conventions (from the dataset README):
-- Tax is PPN 11% on invoices and purchase orders; receipts have no tax line.
-- Amounts are whole Indonesian Rupiah; the printed `.` is a thousands separator
-  (`Rp 240.000` == 240000), never a decimal point.
+against it. Field names deliberately mirror the columns in the project's
+`ground_truth.csv` (vendor, invoice_date, due_date, total_amount, tax_amount,
+currency, line_items) so the later field-level accuracy evaluation lines up
+without any renaming.
 """
 
 from __future__ import annotations
@@ -37,36 +26,63 @@ class DocumentType(str, Enum):
 class LineItem(BaseModel):
     """A single row in a document's itemized table.
 
-    Keys (`qty`, `unit_price`, `line_total`) match the JSON stored in the
-    ground-truth `line_items` column.
+    `line_total` is what the row actually shows; we keep qty/unit_price too so
+    validation can later check that qty * unit_price reconciles with line_total.
     """
 
     description: str = Field(..., description="Item or service description as printed.")
-    qty: float | None = Field(None, description="Quantity ordered/purchased.")
-    unit_price: int | None = Field(None, description="Price per unit, whole Rupiah integer (no dots, no 'Rp').")
-    line_total: int | None = Field(None, description="qty * unit_price, whole Rupiah integer.")
+    quantity: float | None = Field(None, description="Units ordered/purchased.")
+    unit_price: float | None = Field(None, description="Price per unit, plain number (no thousands separators).")
+    line_total: float | None = Field(None, description="Total for this line, plain number.")
 
 
-class Document(BaseModel):
-    """Unified extraction schema across invoice / purchase order / receipt.
+class _DocumentBase(BaseModel):
+    """Fields shared across every document type.
 
-    Receipts legitimately have no `buyer` and no `tax_amount` (no separate tax
-    line), so those stay optional rather than being modeled as separate classes.
-    All monetary fields are whole-Rupiah integers — `Rp 240.000` -> 240000.
+    All monetary fields are plain numbers in the document's currency — e.g. the
+    Indonesian invoice amount `12.450.000` must come back as `12450000`, never
+    `12.45`. Dates normalize to ISO `YYYY-MM-DD`.
     """
 
-    doc_type: DocumentType = Field(..., description="invoice | purchase_order | receipt.")
-    doc_number: str | None = Field(None, description="Document identifier, e.g. INV-2026-001 / PO-... .")
-    vendor: str | None = Field(None, description="Seller / issuer name (the 'From' party).")
-    buyer: str | None = Field(None, description="Buyer / 'Bill To' party; usually absent on receipts.")
-    doc_date: str | None = Field(None, description="Document date normalized to YYYY-MM-DD.")
+    vendor: str | None = Field(None, description="Seller / issuer name.")
+    invoice_date: str | None = Field(None, description="Primary document date, normalized to YYYY-MM-DD.")
+    due_date: str | None = Field(None, description="Payment due date if present, YYYY-MM-DD.")
     currency: str = Field("IDR", description="ISO currency code; defaults to IDR.")
-    subtotal: int | None = Field(None, description="Sum of line totals before tax, whole Rupiah.")
-    tax_amount: int | None = Field(None, description="Tax/PPN amount, whole Rupiah; null/0 on receipts.")
-    total_amount: int | None = Field(None, description="Grand total (subtotal + tax), whole Rupiah.")
+    tax_amount: float | None = Field(None, description="Tax/VAT/PPN amount, plain number.")
+    total_amount: float | None = Field(None, description="Grand total, plain number.")
     line_items: list[LineItem] = Field(default_factory=list, description="Itemized rows.")
 
-    @property
-    def line_item_count(self) -> int:
-        """Derived count, exposed for parity with the ground-truth column."""
-        return len(self.line_items)
+
+class Invoice(_DocumentBase):
+    """A sales/purchase invoice."""
+
+    invoice_number: str | None = Field(None, description="Invoice identifier if shown.")
+
+
+class PurchaseOrder(_DocumentBase):
+    """A purchase order issued to a vendor."""
+
+    po_number: str | None = Field(None, description="Purchase-order identifier if shown.")
+
+
+class Receipt(_DocumentBase):
+    """A point-of-sale receipt."""
+
+    receipt_number: str | None = Field(None, description="Receipt identifier if shown.")
+
+
+class UnifiedDocument(_DocumentBase):
+    """A master document schema that asks the model to classify the document type."""
+    
+    doc_type: DocumentType = Field(..., description="The classified type of the document: invoice, purchase_order, or receipt.")
+    invoice_number: str | None = Field(None, description="Invoice identifier if shown (only if invoice).")
+    po_number: str | None = Field(None, description="Purchase-order identifier if shown (only if purchase_order).")
+    receipt_number: str | None = Field(None, description="Receipt identifier if shown (only if receipt).")
+
+
+# We no longer need SCHEMA_BY_TYPE for the new unified approach, but we keep it for backward compatibility or direct use if needed.
+SCHEMA_BY_TYPE: dict[DocumentType, type[_DocumentBase]] = {
+    DocumentType.INVOICE: Invoice,
+    DocumentType.PURCHASE_ORDER: PurchaseOrder,
+    DocumentType.RECEIPT: Receipt,
+}

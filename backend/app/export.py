@@ -7,15 +7,15 @@ can import against a stable interface.
 
 from __future__ import annotations
 
-from .schemas import Document
+from .schemas import _DocumentBase
 
 
-def to_json(doc: Document) -> str:
+def to_json(doc: _DocumentBase) -> str:
     """Serialize an approved document to JSON. (Stub — minimal pass-through.)"""
     return doc.model_dump_json(indent=2)
 
 
-def to_csv_row(doc: Document) -> dict[str, object]:
+def to_csv_row(doc: _DocumentBase) -> dict[str, object]:
     """Flatten a document to a single CSV row keyed by ground_truth columns.
 
     TODO(next session): write the full CSV with line_items serialized as JSON,

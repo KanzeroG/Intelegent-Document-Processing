@@ -1,127 +1,157 @@
 """Extraction: send a document image to the local vision model, get structured JSON.
 
-Flow:
-  base64 image  ->  prompt embedding the pydantic JSON schema  ->  Ollama
-  ->  strip markdown fences  ->  model_validate_json()
+Flow (per CLAUDE.md):
+  base64 image  ->  prompt that embeds the pydantic JSON schema  ->  LM Studio
+  ->  strip markdown fences / fallback regex  ->  model_validate_json()
 
-The model is served locally by **Ollama** (`qwen2.5vl:3b`, a vision model). We
-call Ollama's native `/api/chat` endpoint rather than the OpenAI-compatible
-shim because we must set `num_ctx`: a rasterized document image is ~3-4k tokens
-and overflows Ollama's default 4096-token context, which otherwise 400s.
+The model is served locally by LM Studio (OpenAI-compatible API). We point the
+`openai` SDK at it. `temperature=0` for deterministic extraction.
 
-Indonesian number gotcha (the central accuracy risk): amounts print as
-`Rp 240.000`, where `.` is a *thousands separator*. Vision models love to read
-this as the decimal `240`, and because the mistake is consistent across
-subtotal/tax/total the figures still reconcile internally — so validation can't
-catch it. The only effective fix is the prompt, so we instruct the model
-explicitly and give a worked example.
+Indonesian number gotcha: amounts print as `12.450.000` (dots = thousands
+separators). The model can misread this as `12.45`, so we (1) instruct it
+explicitly in the prompt and (2) re-clean any numeric strings defensively before
+validation.
 """
 
 from __future__ import annotations
 
 import json
-import re
-
-import httpx  # bundled via the openai dependency
-
-from .schemas import Document, DocumentType
-
-# --- Ollama connection (local) -----------------------------------------------
-OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL_NAME = "qwen2.5vl:3b"
-NUM_CTX = 16384  # must exceed image (~4-5k tokens at zoom 3) + schema prompt + reply
-REQUEST_TIMEOUT = 300.0  # seconds; cold model load + inference can be slow on 16GB
-
-
-class ExtractionError(RuntimeError):
-    """Raised when extraction fails (model unreachable, or unparseable output)."""
-
-
-def _build_prompt(doc_type: DocumentType) -> str:
-    """Compose the instruction text, embedding the target JSON schema."""
-    schema = json.dumps(Document.model_json_schema(), indent=2)
+def _get_system_prompt() -> str:
+    """Return the strict system instructions to prevent hallucinations."""
     return (
-        "You are a precise document-extraction engine. Read the attached "
-        f"{doc_type.value} image and extract its fields.\n\n"
-        "Return ONLY a single JSON object conforming to this JSON schema — no "
-        "markdown, no code fences, no commentary:\n\n"
-        f"{schema}\n\n"
-        "CRITICAL — Indonesian Rupiah amounts:\n"
-        "- The '.' character is a THOUSANDS SEPARATOR, never a decimal point.\n"
-        "- 'Rp 240.000' means 240000. 'Rp 26.400' means 26400. "
-        "'Rp 1.250.000' means 1250000.\n"
-        "- Output every money value as a whole integer with the dots removed. "
-        "NEVER output a decimal like 240.0 or 266.4.\n\n"
-        "Other rules:\n"
-        f"- Set doc_type to \"{doc_type.value}\".\n"
-        "- doc_number = the document identifier printed near the top, usually "
-        "after 'No:' / 'No.' (e.g. INV-2026-001, PO-2026-014). Always capture it.\n"
-        "- vendor = the 'From' / issuer party. buyer = the 'Bill To' party "
-        "(null on receipts).\n"
-        "- subtotal = sum of line totals before tax; tax_amount = PPN if shown "
-        "(null on receipts); total_amount = grand total.\n"
-        "- For each line item: qty is the count, unit_price is the per-unit "
-        "price, line_total = qty * unit_price (all integers).\n"
-        "- Dates normalize to YYYY-MM-DD. Currency defaults to IDR.\n"
-        "- Use null for any field not present in the document.\n"
+        "You are a precise, deterministic document-extraction engine. "
+        "Your ONLY purpose is to read the attached document image and extract its fields into a valid JSON object.\n\n"
+        "CRITICAL RULES - YOU MUST OBEY:\n"
+        "1. DO NOT output any conversational text, explanations, or apologies. Never say 'Sorry'.\n"
+        "2. DO NOT output preambles like 'Invoice number:'.\n"
+        "3. YOUR OUTPUT MUST START WITH '{' AND END WITH '}'.\n"
+        "4. Output STRICTLY VALID JSON. No markdown code fences (```json).\n"
+        "5. Numbers: output plain numbers with NO thousands separators. Indonesian "
+        "documents use a dot as the thousands separator, so `12.450.000` means "
+        "twelve million four hundred fifty thousand and MUST be returned as "
+        "12450000 — never 12.45.\n"
+        "6. Dates: normalize to YYYY-MM-DD.\n"
+        "7. Currency: use the ISO code shown; default to IDR if unspecified.\n"
+        "8. If a field is not present in the document, use null (or an empty list for line_items)."
     )
 
 
+def _build_user_prompt(model_cls: type[UnifiedDocument]) -> str:
+    """Compose the user prompt, embedding the target JSON schema and a skeleton."""
+    schema = json.dumps(model_cls.model_json_schema(), indent=2)
+    
+    # A skeleton helps smaller models generate the exact structure
+    skeleton = (
+        "{\n"
+        '  "doc_type": "invoice",\n'
+        '  "vendor": null,\n'
+        '  "invoice_date": null,\n'
+        '  "due_date": null,\n'
+        '  "currency": "IDR",\n'
+        '  "tax_amount": null,\n'
+        '  "total_amount": null,\n'
+        '  "line_items": [\n'
+        '    {"description": "Item name", "quantity": 1, "unit_price": 0.0, "line_total": 0.0}\n'
+        "  ]\n"
+        "}"
+    )
+
+    return (
+        "Extract the fields from the image based on this JSON schema:\n\n"
+        f"{schema}\n\n"
+        "Fill out this JSON template with the extracted data. DO NOT ADD extra keys outside the schema.\n\n"
+        f"TEMPLATE:\n{skeleton}\n\n"
+        "Remember: output strictly valid JSON starting with '{'. DO NOT output any other text."
+    )
+
+
+# Matches an opening ```json / ``` fence and a trailing ``` fence.
 _FENCE_RE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
 
-
-def _strip_fences(text: str) -> str:
-    """Remove surrounding markdown code fences local models often add."""
-    return _FENCE_RE.sub("", text).strip()
+# Matches a JSON object block from { to }
+_JSON_BLOCK_RE = re.compile(r"(\{.*\})", re.DOTALL)
 
 
-def _extract_json_object(text: str) -> str:
-    """Return the outermost {...} block, ignoring any prose around it."""
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        return text
-    return text[start : end + 1]
+def _extract_json_block(text: str) -> str:
+    """Remove surrounding markdown code fences local models often add, and defensively extract the JSON block."""
+    text = _FENCE_RE.sub("", text).strip()
+    
+    # If the model hallucinated preambles (e.g. "Invoice number: {"), try to just grab the {...} block.
+    if not text.startswith("{"):
+        match = _JSON_BLOCK_RE.search(text)
+        if match:
+            text = match.group(1)
+            
+    return text.strip()
 
 
-def extract_document(image_b64: str, doc_type: DocumentType) -> Document:
-    """Run extraction for one document image and return a validated Document.
+# A number that looks like Indonesian thousands grouping, e.g. 12.450.000 or
+# 1.200.000,50 — i.e. dots separating 3-digit groups, optional comma decimals.
+_ID_THOUSANDS_RE = re.compile(r'"(-?\d{1,3}(?:\.\d{3})+(?:,\d+)?)"')
+
+
+def _clean_id_numbers(raw_json: str) -> str:
+    """Defensively convert Indonesian-formatted numeric *strings* to plain numbers.
+
+    The prompt already asks for plain numbers, but local models slip up. We only
+    touch quoted values that unambiguously match dot-grouped thousands so we
+    don't corrupt real strings. `"12.450.000"` -> `12450000`,
+    `"1.200.000,50"` -> `1200000.50`.
+    """
+
+    def repl(m: re.Match[str]) -> str:
+        val = m.group(1).replace(".", "")  # drop thousands separators
+        val = val.replace(",", ".")  # comma decimal -> dot decimal
+        return val  # unquoted -> becomes a JSON number
+
+    return _ID_THOUSANDS_RE.sub(repl, raw_json)
+
+
+def extract_document(image_b64: str) -> UnifiedDocument:
+    """Run extraction for one document image and return a validated UnifiedDocument.
 
     Raises ExtractionError on connection failure or unparseable model output.
     """
-    payload = {
-        "model": MODEL_NAME,
-        "stream": False,
-        "options": {"temperature": 0, "num_ctx": NUM_CTX},
-        "messages": [
-            {
-                "role": "user",
-                "content": _build_prompt(doc_type),
-                "images": [image_b64],
-            }
-        ],
-    }
+    model_cls = UnifiedDocument
+    system_prompt = _get_system_prompt()
+    user_prompt = _build_user_prompt(model_cls)
 
     try:
-        resp = httpx.post(OLLAMA_URL, json=payload, timeout=REQUEST_TIMEOUT)
-        resp.raise_for_status()
-    except httpx.HTTPError as exc:
+        response = _client.chat.completions.create(
+            model=MODEL_NAME,
+            temperature=0.0,
+            max_tokens=1500,  # Prevent endless loops/hallucinations from taking too long
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": user_prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/png;base64,{image_b64}"},
+                        },
+                    ],
+                }
+            ],
+            response_format={"type": "json_object"},
+        )
+    except APIConnectionError as exc:
         raise ExtractionError(
-            "Could not reach the local vision model. Is Ollama running with "
-            f"'{MODEL_NAME}' pulled? ({exc})"
+            "Could not reach the local vision model. Is LM Studio running with "
+            f"'{MODEL_NAME}' loaded at {LM_STUDIO_BASE_URL}?"
         ) from exc
 
-    content = resp.json().get("message", {}).get("content", "")
-    cleaned = _extract_json_object(_strip_fences(content))
+    content = response.choices[0].message.content or ""
+    cleaned = _clean_id_numbers(_extract_json_block(content))
 
     try:
-        document = Document.model_validate_json(cleaned)
+        return model_cls.model_validate_json(cleaned)
     except ValueError as exc:
         raise ExtractionError(
-            f"Model returned output that did not match the Document schema. "
-            f"Raw output:\n{content}"
+            f"Model returned output that did not match the {model_cls.__name__} "
+            f"schema. Raw output:\n{content}\nCleaned output:\n{cleaned}"
         ) from exc
-
-    # Trust the user's document-type selection over the model's guess.
-    document.doc_type = doc_type
-    return document

@@ -1,7 +1,7 @@
 # Intelligent Document Processing (Extraction & Automation)
 
 Upload a document (invoice, purchase order, or receipt) → a **local multimodal
-vision model** (`qwen2.5vl:3b` via Ollama) reads it and returns clean,
+vision model** (Qwen3-VL-4B via LM Studio) reads it and returns clean,
 **structured JSON** → the data is **validated** → a human **reviews & approves**
 → it's **exported**. Project 4 of the LapisAI / Xquisite AI offering.
 
@@ -12,13 +12,13 @@ vision model** (`qwen2.5vl:3b` via Ollama) reads it and returns clean,
 ## Architecture
 
 ```
-React (Vite)  ──HTTP──►  FastAPI (Python)  ──►  Ollama local server (qwen2.5vl:3b)
+React (Vite)  ──HTTP──►  FastAPI (Python)  ──►  LM Studio local server (Qwen3-VL-4B)
    UI / review              extraction                 vision model
                             validation
                             export
 ```
 
-The **backend + model run locally** (Ollama on `localhost:11434`). A
+The **backend + model run locally** (LM Studio on `localhost:1234`). A
 cloud-hosted (e.g. Vercel) frontend cannot reach a model on your laptop, so for
 development run everything locally. The frontend's API URL is configurable via
 `VITE_API_BASE_URL` for when the backend is reachable elsewhere.
@@ -31,8 +31,8 @@ export, accuracy evaluation, the staff review screen, and the admin dashboard.
 
 ## Prerequisites
 
-1. **Ollama** running with the vision model pulled:
-   `ollama pull qwen2.5vl:3b` (server at `http://localhost:11434`).
+1. **LM Studio** running its local server with `qwen/qwen3-vl-4b` loaded
+   (OpenAI-compatible API at `http://localhost:1234/v1`).
 2. **Python 3.11+** and **Node 18+**.
 
 ## Run it
@@ -64,16 +64,13 @@ stubbed auth — staff/admin views are placeholders for now.
 ```
 backend/app/   schemas · loaders · extraction · validation · export(stub) · auth(stub) · main
 frontend/src/  api.ts · pages/UploadPage.tsx · App.tsx (role switcher)
-Source/        documents/ (60 sample PDFs) · ground_truth.csv (labels)
+data/          uploads/ (git-ignored) · ground_truth.csv (later)
 notebooks/     dataset exploration + evaluation harness (later)
 ```
 
 ## Notes & gotchas
 - **The vision model is the OCR** — no separate OCR engine in the main path.
-- **Indonesian numbers**: `Rp 240.000` (dots = thousands) is handled by an explicit
-  prompt instruction + worked example, so it returns `240000`, not `240`. This is the
-  single biggest accuracy risk; PDFs are rendered at zoom 3.0 so small digits read cleanly.
-- **Context size**: a document image needs `num_ctx` ≈ 16384 in Ollama — the default
-  4096 overflows and 400s.
-- Dates normalize to `YYYY-MM-DD`; currency defaults to `IDR`. PPN is 11% on invoices/POs.
+- **Indonesian numbers**: `12.450.000` (dots = thousands) is handled by both the
+  prompt and a defensive cleanup step so it doesn't become `12.45`.
+- Dates normalize to `YYYY-MM-DD`; currency defaults to `IDR`.
 - React never touches the model directly — only FastAPI does.

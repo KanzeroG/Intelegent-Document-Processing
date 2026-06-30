@@ -11,24 +11,23 @@ export type Role = "user" | "staff" | "admin";
 
 export interface LineItem {
   description: string;
-  qty: number | null;
+  quantity: number | null;
   unit_price: number | null;
   line_total: number | null;
 }
 
-// Mirrors the backend Document schema (field names match ground_truth.csv).
+// Mirrors the backend document schema (superset across doc types).
 export interface ExtractedDocument {
-  doc_type: DocType;
-  doc_number: string | null;
   vendor: string | null;
-  buyer: string | null;
-  doc_date: string | null;
+  invoice_date: string | null;
+  due_date: string | null;
   currency: string;
-  subtotal: number | null;
   tax_amount: number | null;
   total_amount: number | null;
   line_items: LineItem[];
-  line_item_count?: number;
+  invoice_number?: string | null;
+  po_number?: string | null;
+  receipt_number?: string | null;
 }
 
 export interface ValidationIssue {
@@ -47,12 +46,10 @@ export interface ExtractResponse {
 // on failure so the UI can show why (e.g. LM Studio not running).
 export async function extractDocument(
   file: File,
-  docType: DocType,
   role: Role,
 ): Promise<ExtractResponse> {
   const form = new FormData();
   form.append("file", file);
-  form.append("doc_type", docType);
 
   const res = await fetch(`${API_BASE_URL}/extract`, {
     method: "POST",

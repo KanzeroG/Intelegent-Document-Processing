@@ -15,10 +15,9 @@ import io
 import fitz  # PyMuPDF
 from PIL import Image
 
-# Rasterization zoom for PDFs. 3.0 ≈ 216 DPI: empirically needed for qwen2.5vl:3b
-# to read small table digits (qty / unit price) and document numbers reliably.
-# Higher (4.0) gave no gain and cost more tokens/time on the 16GB target machine.
-_PDF_ZOOM = 3.0
+# Rasterization zoom for PDFs. 2.0 ≈ 144 DPI — a good balance between legibility
+# for the vision model and memory use on the 16GB target machine.
+_PDF_ZOOM = 2.0
 
 
 def _png_to_base64(png_bytes: bytes) -> str:

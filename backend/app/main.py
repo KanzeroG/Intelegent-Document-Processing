@@ -1,10 +1,8 @@
 """FastAPI app + routes.
 
 Exposes the vertical slice:
-  GET  /health   -> liveness (does not probe the model)
+  GET  /health   -> liveness + whether LM Studio is reachable
   POST /extract  -> upload a document, get back validated structured JSON
-
-Model access goes to the local Ollama server (see extraction.py).
 
 React (Vite) is the only client; it never touches the model directly — all
 model access goes through this backend.
@@ -50,7 +48,6 @@ def health() -> dict[str, str]:
 @app.post("/extract", response_model=ExtractResponse)
 async def extract(
     file: UploadFile = File(...),
-    doc_type: DocumentType = Form(DocumentType.INVOICE),
     role: Role = Depends(get_current_role),
 ) -> ExtractResponse:
     """Load an uploaded document, extract structured fields, validate, return.
@@ -69,12 +66,10 @@ async def extract(
         raise HTTPException(status_code=422, detail=f"Could not read document: {exc}") from exc
 
     try:
-        document = extract_document(image_b64, doc_type)
+        document = extract_document(image_b64)
     except ExtractionError as exc:
         # 502: the failure is upstream (the local model), not the client's request.
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     issues = validate_document(document)
-    data = document.model_dump(mode="json")
-    data["line_item_count"] = document.line_item_count  # parity with ground_truth column
-    return ExtractResponse(doc_type=doc_type, data=data, issues=issues)
+    return ExtractResponse(doc_type=document.doc_type, data=document.model_dump(), issues=issues)
