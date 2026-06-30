@@ -11,23 +11,24 @@ export type Role = "user" | "staff" | "admin";
 
 export interface LineItem {
   description: string;
-  quantity: number | null;
+  qty: number | null;
   unit_price: number | null;
   line_total: number | null;
 }
 
-// Mirrors the backend document schema (superset across doc types).
+// Mirrors the backend Document schema (field names match ground_truth.csv).
 export interface ExtractedDocument {
+  doc_type: DocType;
+  doc_number: string | null;
   vendor: string | null;
-  invoice_date: string | null;
-  due_date: string | null;
+  buyer: string | null;
+  doc_date: string | null;
   currency: string;
+  subtotal: number | null;
   tax_amount: number | null;
   total_amount: number | null;
   line_items: LineItem[];
-  invoice_number?: string | null;
-  po_number?: string | null;
-  receipt_number?: string | null;
+  line_item_count?: number;
 }
 
 export interface ValidationIssue {

@@ -111,11 +111,13 @@ export default function UploadPage({ role }: { role: Role }) {
               )}
               <table className="fields">
                 <tbody>
+                  <tr><td>Doc number</td><td>{doc.doc_number ?? "—"}</td></tr>
                   <tr><td>Vendor</td><td>{doc.vendor ?? "—"}</td></tr>
-                  <tr><td>Invoice date</td><td>{doc.invoice_date ?? "—"}</td></tr>
-                  <tr><td>Due date</td><td>{doc.due_date ?? "—"}</td></tr>
+                  <tr><td>Buyer</td><td>{doc.buyer ?? "—"}</td></tr>
+                  <tr><td>Date</td><td>{doc.doc_date ?? "—"}</td></tr>
                   <tr><td>Currency</td><td>{doc.currency}</td></tr>
-                  <tr><td>Tax</td><td>{formatAmount(doc.tax_amount)}</td></tr>
+                  <tr><td>Subtotal</td><td>{formatAmount(doc.subtotal)}</td></tr>
+                  <tr><td>Tax (PPN)</td><td>{formatAmount(doc.tax_amount)}</td></tr>
                   <tr><td>Total</td><td><strong>{formatAmount(doc.total_amount)}</strong></td></tr>
                 </tbody>
               </table>
@@ -131,7 +133,7 @@ export default function UploadPage({ role }: { role: Role }) {
                     {doc.line_items.map((li, i) => (
                       <tr key={i}>
                         <td>{li.description}</td>
-                        <td>{li.quantity ?? "—"}</td>
+                        <td>{li.qty ?? "—"}</td>
                         <td>{formatAmount(li.unit_price)}</td>
                         <td>{formatAmount(li.line_total)}</td>
                       </tr>

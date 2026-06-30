@@ -73,4 +73,6 @@ async def extract(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     issues = validate_document(document)
-    return ExtractResponse(doc_type=doc_type, data=document.model_dump(), issues=issues)
+    data = document.model_dump(mode="json")
+    data["line_item_count"] = document.line_item_count  # parity with ground_truth column
+    return ExtractResponse(doc_type=doc_type, data=data, issues=issues)
