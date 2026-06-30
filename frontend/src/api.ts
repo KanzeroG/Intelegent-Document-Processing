@@ -44,7 +44,7 @@ export interface ExtractResponse {
 }
 
 // POST a document to /extract. Throws Error with the backend's detail message
-// on failure so the UI can show why (e.g. LM Studio not running).
+// on failure so the UI can show why (e.g. Ollama not running).
 export async function extractDocument(
   file: File,
   docType: DocType,
