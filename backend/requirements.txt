@@ -7,3 +7,6 @@ httpx>=0.27              # HTTP client for Ollama's native /api/chat
 PyMuPDF>=1.24             # PDF -> image rasterization (imports as `fitz`)
 pdf2image>=1.17           # alternative PDF rasterizer (kept per the brief)
 Pillow>=10.0             # image normalization to PNG
+
+# --- dev/test ---
+pytest>=8.0               # backend/tests

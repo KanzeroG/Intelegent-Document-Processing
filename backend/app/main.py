@@ -1,8 +1,10 @@
 """FastAPI app + routes.
 
 Exposes the vertical slice:
-  GET  /health   -> liveness + whether LM Studio is reachable
+  GET  /health   -> liveness (does not probe the model)
   POST /extract  -> upload a document, get back validated structured JSON
+
+Model access goes to the local Ollama server (see extraction.py).
 
 React (Vite) is the only client; it never touches the model directly — all
 model access goes through this backend.
