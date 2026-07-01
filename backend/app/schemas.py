@@ -70,3 +70,17 @@ class Document(BaseModel):
     def line_item_count(self) -> int:
         """Derived count, exposed for parity with the ground-truth column."""
         return len(self.line_items)
+
+
+# Header fields expected per document type (receipts have no buyer / tax line).
+# Used to score confidence and flag missing information.
+_EXPECTED_FIELDS: dict[DocumentType, tuple[str, ...]] = {
+    DocumentType.INVOICE: ("doc_number", "vendor", "buyer", "doc_date", "subtotal", "tax_amount", "total_amount"),
+    DocumentType.PURCHASE_ORDER: ("doc_number", "vendor", "buyer", "doc_date", "subtotal", "tax_amount", "total_amount"),
+    DocumentType.RECEIPT: ("doc_number", "vendor", "doc_date", "subtotal", "total_amount"),
+}
+
+
+def missing_fields(doc: Document) -> list[str]:
+    """Expected header fields (for this doc type) that came back empty."""
+    return [f for f in _EXPECTED_FIELDS[doc.doc_type] if getattr(doc, f, None) in (None, "")]

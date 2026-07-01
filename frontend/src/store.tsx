@@ -1,33 +1,27 @@
-// App-wide state: a stubbed auth/role context and an in-memory store of
-// extracted documents. The store lets the Upload flow hand results to the
-// Review and Dashboard screens without a backend database (sufficient for the
-// vertical slice; persistence comes later).
+// App-wide state: a stubbed auth/role context and an API-backed store of
+// extracted documents. Documents are persisted server-side (SQLite); this store
+// loads them on mount and keeps a local copy in sync as records are added or
+// edited, so a page refresh no longer loses work or re-runs the model.
 
 import {
   createContext,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
-import type { ExtractedDocument, Role, ValidationIssue, DocType } from "./api";
+import {
+  listDocuments,
+  fileUrl,
+  type DocumentRecord,
+  type ExtractedDocument,
+  type Role,
+  type DocStatus,
+  type DocType,
+} from "./api";
 
-// Header fields we expect to be present, by document type. Receipts legitimately
-// have no buyer / no separate tax line, so those aren't "missing" for a receipt.
-const EXPECTED_FIELDS: Record<DocType, (keyof ExtractedDocument)[]> = {
-  invoice: ["doc_number", "vendor", "buyer", "doc_date", "subtotal", "tax_amount", "total_amount"],
-  purchase_order: ["doc_number", "vendor", "buyer", "doc_date", "subtotal", "tax_amount", "total_amount"],
-  receipt: ["doc_number", "vendor", "doc_date", "subtotal", "total_amount"],
-};
-
-function isEmpty(v: unknown): boolean {
-  return v === null || v === undefined || v === "";
-}
-
-// Expected header fields that came back empty for this document type.
-export function missingFields(data: ExtractedDocument, docType: DocType): (keyof ExtractedDocument)[] {
-  return EXPECTED_FIELDS[docType].filter((f) => isEmpty(data[f]));
-}
+export type { DocStatus } from "./api";
 
 // ---- Auth (stubbed) ---------------------------------------------------------
 
@@ -45,31 +39,44 @@ export function useAuth(): AuthState {
   return ctx;
 }
 
-// ---- Extracted-document store ----------------------------------------------
+// ---- Document store (API-backed) -------------------------------------------
 
-export type DocStatus =
-  | "extracted"
-  | "in_review"
-  | "approved"
-  | "flagged"
-  | "rejected";
-
+// Client-side view of a persisted document. Field names match what the pages
+// already use; `previewUrl` points at the backend's stored-file endpoint.
 export interface DocRecord {
-  id: string; // doc_number, or a generated id when missing
+  id: string;
+  doc_number: string | null;
   fileName: string;
   docType: DocType;
-  uploadedAt: string; // YYYY-MM-DD
+  uploadedAt: string;
   status: DocStatus;
   data: ExtractedDocument;
-  issues: ValidationIssue[];
-  previewUrl: string; // object URL of the uploaded file
-  confidence: number; // heuristic 0-100 for display
+  issues: DocumentRecord["issues"];
+  previewUrl: string;
+  confidence: number;
+}
+
+export function toRecord(r: DocumentRecord): DocRecord {
+  return {
+    id: r.id,
+    doc_number: r.doc_number,
+    fileName: r.filename ?? "document",
+    docType: r.doc_type,
+    uploadedAt: r.uploaded_at,
+    status: r.status,
+    data: r.data,
+    issues: r.issues,
+    previewUrl: fileUrl(r.id),
+    confidence: r.confidence,
+  };
 }
 
 interface DocStore {
   docs: DocRecord[];
-  addDoc: (rec: DocRecord) => void;
-  updateDoc: (id: string, patch: Partial<DocRecord>) => void;
+  loading: boolean;
+  reload: () => Promise<void>;
+  addRecord: (r: DocumentRecord) => void;
+  replaceRecord: (r: DocumentRecord) => void;
   getDoc: (id: string) => DocRecord | undefined;
 }
 
@@ -81,48 +88,58 @@ export function useDocuments(): DocStore {
   return ctx;
 }
 
-// Derive a display status + confidence from validation issues.
-export function statusFromIssues(issues: ValidationIssue[]): DocStatus {
-  if (issues.some((i) => i.severity === "error")) return "flagged";
-  if (issues.some((i) => i.severity === "warning")) return "in_review";
-  return "extracted";
-}
+// Expected header fields per doc type (receipts have no buyer / tax line).
+// Kept client-side to drive the "Missing" badges + confidence display.
+const EXPECTED_FIELDS: Record<DocType, (keyof ExtractedDocument)[]> = {
+  invoice: ["doc_number", "vendor", "buyer", "doc_date", "subtotal", "tax_amount", "total_amount"],
+  purchase_order: ["doc_number", "vendor", "buyer", "doc_date", "subtotal", "tax_amount", "total_amount"],
+  receipt: ["doc_number", "vendor", "doc_date", "subtotal", "total_amount"],
+};
 
-// Display confidence heuristic: start at 99, subtract for validation issues AND
-// for expected header fields that came back empty. So a doc missing its buyer or
-// tax reads lower than a clean one, instead of everything showing 99%.
-export function computeConfidence(
-  data: ExtractedDocument,
-  issues: ValidationIssue[],
-  docType: DocType,
-): number {
-  const issuePenalty = issues.reduce((acc, i) => acc + (i.severity === "error" ? 12 : 4), 0);
-  const missingPenalty = missingFields(data, docType).length * 8;
-  return Math.max(50, 99 - issuePenalty - missingPenalty);
+export function missingFields(data: ExtractedDocument, docType: DocType): (keyof ExtractedDocument)[] {
+  return EXPECTED_FIELDS[docType].filter((f) => {
+    const v = data[f];
+    return v === null || v === undefined || v === "";
+  });
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<Role | null>(null);
   const [docs, setDocs] = useState<DocRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  async function reload() {
+    setLoading(true);
+    try {
+      setDocs((await listDocuments()).map(toRecord));
+    } catch {
+      /* backend not up yet — leave docs as-is */
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Load persisted documents once on mount.
+  useEffect(() => {
+    void reload();
+  }, []);
 
   const auth = useMemo<AuthState>(
-    () => ({
-      role,
-      signIn: setRole,
-      signOut: () => setRole(null),
-    }),
+    () => ({ role, signIn: setRole, signOut: () => setRole(null) }),
     [role],
   );
 
   const store = useMemo<DocStore>(
     () => ({
       docs,
-      addDoc: (rec) => setDocs((prev) => [rec, ...prev]),
-      updateDoc: (id, patch) =>
-        setDocs((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d))),
+      loading,
+      reload,
+      addRecord: (r) => setDocs((prev) => [toRecord(r), ...prev]),
+      replaceRecord: (r) =>
+        setDocs((prev) => prev.map((d) => (d.id === r.id ? toRecord(r) : d))),
       getDoc: (id) => docs.find((d) => d.id === id),
     }),
-    [docs],
+    [docs, loading],
   );
 
   return (

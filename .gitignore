@@ -18,6 +18,9 @@ dist-ssr/
 data/uploads/*
 !data/uploads/.gitkeep
 
+# SQLite cache (runtime)
+data/*.db
+
 # OS / editor
 .DS_Store
 Thumbs.db

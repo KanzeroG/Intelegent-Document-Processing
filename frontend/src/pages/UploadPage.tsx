@@ -6,13 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { extractDocument, type DocType } from "../api";
-import {
-  useAuth,
-  useDocuments,
-  statusFromIssues,
-  computeConfidence,
-  type DocRecord,
-} from "../store";
+import { useAuth, useDocuments } from "../store";
 import StatusBadge from "../components/StatusBadge";
 import { DOC_TYPE_LABEL } from "../lib/format";
 
@@ -20,7 +14,7 @@ const TYPES: DocType[] = ["invoice", "purchase_order", "receipt"];
 
 export default function UploadPage() {
   const { role } = useAuth();
-  const { docs, addDoc } = useDocuments();
+  const { docs, addRecord } = useDocuments();
   const navigate = useNavigate();
 
   const [docType, setDocType] = useState<DocType>("invoice");
@@ -39,33 +33,21 @@ export default function UploadPage() {
     setFile(f);
   }
 
-  // Run extraction for the staged file when the user clicks "Extract".
+  // Run extraction for the staged file when the user clicks "Extract". The
+  // backend persists the record; we prepend the returned record to the store.
   async function runExtract() {
     if (!file) return;
     setLoading(true);
-    // A separate object URL is kept on the stored record (survives re-uploads).
-    const previewUrl = URL.createObjectURL(file);
     try {
-      const res = await toast.promise(extractDocument(file, docType, role ?? "user"), {
+      const rec = await toast.promise(extractDocument(file, docType, role ?? "user"), {
         loading: "Extracting with the vision model…",
         success: "Extraction complete",
         error: (e) => (e instanceof Error ? e.message : "Extraction failed"),
       });
-      const rec: DocRecord = {
-        id: res.data.doc_number || `DOC-${Date.now().toString().slice(-6)}`,
-        fileName: file.name,
-        docType: res.doc_type,
-        uploadedAt: new Date().toISOString().slice(0, 10),
-        status: statusFromIssues(res.issues),
-        data: res.data,
-        issues: res.issues,
-        previewUrl,
-        confidence: computeConfidence(res.data, res.issues, res.doc_type),
-      };
-      addDoc(rec);
+      addRecord(rec);
       setFile(null); // clear the staging area; the doc now lives in the table
     } catch {
-      URL.revokeObjectURL(previewUrl);
+      /* error surfaced by toast.promise */
     } finally {
       setLoading(false);
     }

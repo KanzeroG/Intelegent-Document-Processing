@@ -23,11 +23,19 @@ cloud-hosted (e.g. Vercel) frontend cannot reach a model on your laptop, so for
 development run everything locally. The frontend's API URL is configurable via
 `VITE_API_BASE_URL` for when the backend is reachable elsewhere.
 
-## Current status — vertical slice
+## Current status
 
-Working end-to-end: **upload → extract → validate → display fields**.
-Scaffolded for the next session: full validation rules, CSV/JSON + mock-API
-export, accuracy evaluation, the staff review screen, and the admin dashboard.
+Working end-to-end: **upload → extract → validate → review/correct → approve**,
+with a DocExtract UI (login, upload, review, dashboard). Extractions are
+**cached in SQLite** (`data/docextract.db`) with the original file, so re-opening
+the app doesn't re-run the model.
+
+API: `POST /extract` (extract + persist), `GET /documents`, `GET /documents/{id}`,
+`GET /documents/{id}/file`, `PATCH /documents/{id}` (save corrections / status;
+re-validates edited data).
+
+Still pending: real CSV/JSON + mock-API export (`export.py` is a stub) and the
+field-level accuracy evaluation vs. `ground_truth.csv`.
 
 ## Prerequisites
 

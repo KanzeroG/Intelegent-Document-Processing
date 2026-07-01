@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useDocuments, missingFields } from "../store";
-import type { ExtractedDocument } from "../api";
+import { patchDocument, type ExtractedDocument } from "../api";
 import { formatNumber, DOC_TYPE_LABEL } from "../lib/format";
 
 const FIELD_LABEL: Record<string, string> = {
@@ -34,7 +34,7 @@ function ruleTitle(field: string, severity: string): string {
 export default function ReviewPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { docs, getDoc, updateDoc } = useDocuments();
+  const { docs, getDoc, replaceRecord } = useDocuments();
 
   // Pick the requested doc, else the first that needs review, else the first.
   const rec =
@@ -101,19 +101,31 @@ export default function ReviewPage() {
     ...missingIssues,
   ];
 
-  function save() {
-    updateDoc(rec!.id, { data: form! });
-    toast.success("Corrections saved");
+  async function save() {
+    try {
+      replaceRecord(await patchDocument(rec!.id, { data: form! }));
+      toast.success("Corrections saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
+    }
   }
-  function approve() {
-    updateDoc(rec!.id, { data: form!, status: "approved" });
-    toast.success(`${rec!.id} approved & exported`);
-    navigate("/upload");
+  async function approve() {
+    try {
+      replaceRecord(await patchDocument(rec!.id, { data: form!, status: "approved" }));
+      toast.success(`${rec!.doc_number ?? rec!.id} approved & exported`);
+      navigate("/upload");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Approve failed");
+    }
   }
-  function reject() {
-    updateDoc(rec!.id, { status: "rejected" });
-    toast("Document rejected", { icon: "🚫" });
-    navigate("/upload");
+  async function reject() {
+    try {
+      replaceRecord(await patchDocument(rec!.id, { status: "rejected" }));
+      toast("Document rejected", { icon: "🚫" });
+      navigate("/upload");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Reject failed");
+    }
   }
 
   return (
