@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useDocuments, missingFields } from "../store";
-import { patchDocument, mockIngest, exportJsonUrl, type ExtractedDocument } from "../api";
+import { patchDocument, mockIngest, exportJsonUrl, exportCsvUrl, type ExtractedDocument } from "../api";
 import { formatNumber, DOC_TYPE_LABEL } from "../lib/format";
 
 const FIELD_LABEL: Record<string, string> = {
@@ -233,16 +233,34 @@ export default function ReviewPage() {
           </div>
 
           {/* Actions */}
-          <div className="flex items-center justify-end gap-3">
-            <button onClick={reject} className="flex items-center gap-1 rounded-lg border border-status-error px-4 py-2.5 font-semibold text-status-error">
-              <span className="material-symbols-outlined text-base">cancel</span> Reject
-            </button>
-            <button onClick={save} className="rounded-lg border border-border-base px-4 py-2.5 font-semibold text-text-primary">
-              Save Corrections
-            </button>
-            <button onClick={approve} className="rounded-lg bg-primary px-4 py-2.5 font-semibold text-white hover:bg-primary-container">
-              Approve &amp; Export
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <a
+                href={exportJsonUrl(rec.id)}
+                download={`${rec.doc_number ?? rec.id}.json`}
+                className="flex items-center gap-1 rounded-lg border border-border-base px-3 py-2.5 text-body-sm font-semibold text-text-primary"
+              >
+                <span className="material-symbols-outlined text-base">download</span> JSON
+              </a>
+              <a
+                href={exportCsvUrl(rec.id)}
+                download={`${rec.doc_number ?? rec.id}.csv`}
+                className="flex items-center gap-1 rounded-lg border border-border-base px-3 py-2.5 text-body-sm font-semibold text-text-primary"
+              >
+                <span className="material-symbols-outlined text-base">download</span> CSV
+              </a>
+            </div>
+            <div className="flex items-center gap-3">
+              <button onClick={reject} className="flex items-center gap-1 rounded-lg border border-status-error px-4 py-2.5 font-semibold text-status-error">
+                <span className="material-symbols-outlined text-base">cancel</span> Reject
+              </button>
+              <button onClick={save} className="rounded-lg border border-border-base px-4 py-2.5 font-semibold text-text-primary">
+                Save Corrections
+              </button>
+              <button onClick={approve} className="rounded-lg bg-primary px-4 py-2.5 font-semibold text-white hover:bg-primary-container">
+                Approve &amp; Export
+              </button>
+            </div>
           </div>
         </div>
       </div>
