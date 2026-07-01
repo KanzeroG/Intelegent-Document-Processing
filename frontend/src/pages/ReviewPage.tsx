@@ -279,14 +279,21 @@ function NumField({ label, k, value, onChange, cls, missing }: {
   label: string; k: keyof ExtractedDocument; value: number | null;
   onChange: (k: keyof ExtractedDocument, v: unknown) => void; cls: (key: string) => string; missing?: boolean;
 }) {
+  // Text input (not type=number) so we can show Rupiah grouping: 1.812.630.
+  // On edit we strip the separators and parse the digits back to an integer.
+  const display = value === null || value === undefined ? "" : value.toLocaleString("id-ID");
   return (
     <label className="block">
       <span className="text-label-md text-on-surface-variant">{label}{missing && <MissingTag />}</span>
       <input
-        type="number"
-        value={value ?? ""}
+        type="text"
+        inputMode="numeric"
+        value={display}
         placeholder={missing ? "Missing" : ""}
-        onChange={(e) => onChange(k, e.target.value === "" ? null : Number(e.target.value))}
+        onChange={(e) => {
+          const digits = e.target.value.replace(/\D/g, "");
+          onChange(k, digits === "" ? null : Number(digits));
+        }}
         className={`${cls(k as string)} mono ${missing ? "border-status-warning" : ""}`}
       />
     </label>
