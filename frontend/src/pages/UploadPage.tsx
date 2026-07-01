@@ -2,7 +2,7 @@
 // table below. Extraction calls the real backend (/extract) and stores the
 // result so the Review and Dashboard screens can use it.
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { extractDocument, type DocType } from "../api";
@@ -26,10 +26,24 @@ export default function UploadPage() {
   const [docType, setDocType] = useState<DocType>("invoice");
   const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  async function handleFile(file: File) {
+  // Preview URL for the staged (not-yet-extracted) file.
+  const stagedPreview = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
+  useEffect(() => () => { if (stagedPreview) URL.revokeObjectURL(stagedPreview); }, [stagedPreview]);
+  const isPdf = file?.type === "application/pdf" || file?.name.toLowerCase().endsWith(".pdf");
+
+  // Stage a chosen file — does NOT extract. Extraction waits for the button.
+  function stageFile(f: File) {
+    setFile(f);
+  }
+
+  // Run extraction for the staged file when the user clicks "Extract".
+  async function runExtract() {
+    if (!file) return;
     setLoading(true);
+    // A separate object URL is kept on the stored record (survives re-uploads).
     const previewUrl = URL.createObjectURL(file);
     try {
       const res = await toast.promise(extractDocument(file, docType, role ?? "user"), {
@@ -49,6 +63,7 @@ export default function UploadPage() {
         confidence: computeConfidence(res.data, res.issues, res.doc_type),
       };
       addDoc(rec);
+      setFile(null); // clear the staging area; the doc now lives in the table
     } catch {
       URL.revokeObjectURL(previewUrl);
     } finally {
@@ -64,47 +79,82 @@ export default function UploadPage() {
       </p>
 
       <div className="mt-6 grid grid-cols-1 gap-gutter lg:grid-cols-3">
-        {/* Drop zone */}
+        {/* Drop zone / staged file */}
         <div className="lg:col-span-2">
-          <div
-            onDragEnter={(e) => {
-              e.preventDefault();
-              setDragActive(true);
-            }}
-            onDragOver={(e) => e.preventDefault()}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragActive(false);
-              if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]);
-            }}
-            onClick={() => inputRef.current?.click()}
-            className={[
-              "flex h-full min-h-[260px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed bg-surface-white p-8 text-center transition-colors",
-              dragActive ? "border-secondary bg-secondary/5" : "border-outline-variant",
-            ].join(" ")}
-          >
-            <input
-              ref={inputRef}
-              type="file"
-              accept="application/pdf,image/*"
-              className="hidden"
-              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-            />
-            <span className="material-symbols-outlined text-5xl text-secondary">cloud_upload</span>
-            <p className="mt-3 text-headline-md text-text-primary">
-              Drag an invoice, purchase order, or receipt here
-            </p>
-            <p className="mt-1 text-body-sm text-on-surface-variant">
-              Supports PDF, PNG, or JPG (Max 15MB)
-            </p>
-            <div className="mt-4 flex items-center gap-3">
-              <span className="rounded-lg bg-primary px-4 py-2 text-body-md font-semibold text-white">
-                {loading ? "Processing…" : "Browse files"}
-              </span>
-              <span className="text-body-sm text-on-surface-variant">or drop files here</span>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="application/pdf,image/*"
+            className="hidden"
+            onChange={(e) => e.target.files?.[0] && stageFile(e.target.files[0])}
+          />
+
+          {!file ? (
+            <div
+              onDragEnter={(e) => { e.preventDefault(); setDragActive(true); }}
+              onDragOver={(e) => e.preventDefault()}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragActive(false);
+                if (e.dataTransfer.files?.[0]) stageFile(e.dataTransfer.files[0]);
+              }}
+              onClick={() => inputRef.current?.click()}
+              className={[
+                "flex h-full min-h-[320px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed bg-surface-white p-8 text-center transition-colors",
+                dragActive ? "border-secondary bg-secondary/5" : "border-outline-variant",
+              ].join(" ")}
+            >
+              <span className="material-symbols-outlined text-5xl text-secondary">cloud_upload</span>
+              <p className="mt-3 text-headline-md text-text-primary">
+                Drag an invoice, purchase order, or receipt here
+              </p>
+              <p className="mt-1 text-body-sm text-on-surface-variant">Supports PDF, PNG, or JPG (Max 15MB)</p>
+              <div className="mt-4 flex items-center gap-3">
+                <span className="rounded-lg bg-primary px-4 py-2 text-body-md font-semibold text-white">Browse files</span>
+                <span className="text-body-sm text-on-surface-variant">or drop files here</span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex h-full flex-col rounded-lg border border-border-base bg-surface-white p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-body-md text-text-primary">
+                  <span className="material-symbols-outlined text-secondary">description</span>
+                  <span className="font-semibold">{file.name}</span>
+                </div>
+                <button
+                  onClick={() => setFile(null)}
+                  disabled={loading}
+                  className="text-body-sm text-on-surface-variant hover:text-status-error"
+                >
+                  Remove
+                </button>
+              </div>
+
+              <div className="mt-3 flex-1 overflow-hidden rounded-lg border border-border-base bg-inverse-surface">
+                {stagedPreview && (isPdf ? (
+                  <iframe title="staged" src={`${stagedPreview}#view=FitH&toolbar=0&navpanes=0`} className="h-[360px] w-full bg-white" />
+                ) : (
+                  <img alt="staged" src={stagedPreview} className="max-h-[360px] w-full bg-white object-contain" />
+                ))}
+              </div>
+
+              <button
+                onClick={runExtract}
+                disabled={loading}
+                className="mt-4 flex h-11 items-center justify-center gap-2 rounded-lg bg-primary font-semibold text-white transition-colors hover:bg-primary-container disabled:opacity-60"
+              >
+                {loading ? (
+                  <>Extracting…</>
+                ) : (
+                  <>
+                    <span className="material-symbols-outlined text-base">auto_awesome</span>
+                    Extract with AI
+                  </>
+                )}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Processing settings */}
