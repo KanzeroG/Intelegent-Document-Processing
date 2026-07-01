@@ -6,7 +6,7 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import { extractDocument, type DocType } from "../api";
+import { extractDocument, exportAllUrl, type DocType } from "../api";
 import { useAuth, useDocuments } from "../store";
 import StatusBadge from "../components/StatusBadge";
 import { DOC_TYPE_LABEL } from "../lib/format";
@@ -218,7 +218,19 @@ export default function UploadPage() {
       <div className="mt-8 rounded-lg border border-border-base bg-surface-white shadow-sm">
         <div className="flex items-center justify-between border-b border-border-base px-5 py-4">
           <h3 className="text-headline-md text-text-primary">My Documents</h3>
-          <span className="text-body-sm text-on-surface-variant">{docs.length} document(s)</span>
+          <div className="flex items-center gap-4">
+            {docs.some((d) => d.status === "approved") && (
+              <a
+                href={exportAllUrl("approved")}
+                download="documents_approved.csv"
+                className="flex items-center gap-1 text-body-sm font-semibold text-secondary hover:underline"
+              >
+                <span className="material-symbols-outlined text-base">download</span>
+                Export approved (CSV)
+              </a>
+            )}
+            <span className="text-body-sm text-on-surface-variant">{docs.length} document(s)</span>
+          </div>
         </div>
 
         {docs.length === 0 ? (

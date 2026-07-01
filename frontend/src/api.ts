@@ -133,6 +133,10 @@ export function exportJsonUrl(id: string): string {
 export function exportCsvUrl(id: string): string {
   return `${API_BASE_URL}/documents/${encodeURIComponent(id)}/export.csv`;
 }
+// Bulk CSV of all documents with a given status (default approved).
+export function exportAllUrl(status: "approved" | "all" = "approved"): string {
+  return `${API_BASE_URL}/exports/documents.csv?status=${status}`;
+}
 
 // Hand an approved document to the mock downstream API (stands in for an ERP).
 export async function mockIngest(rec: DocumentRecord): Promise<{ received: boolean; message: string }> {

@@ -184,6 +184,21 @@ def eval_status() -> dict:
     return evaluation.get_status()
 
 
+@app.get("/exports/documents.csv")
+def export_all_csv(status: str = "approved") -> Response:
+    """Bulk CSV of documents, filtered by status (default: approved). Use
+    status=all to export everything. One row per doc, ground_truth columns."""
+    records = db.list_documents()
+    if status != "all":
+        records = [r for r in records if r.get("status") == status]
+    filename = f"documents_{status}.csv"
+    return Response(
+        content=export.to_csv_many(records),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/mock-api/ingest")
 def mock_ingest(payload: dict) -> dict:
     """Mock downstream system (e.g. an ERP). Accepts an approved document and

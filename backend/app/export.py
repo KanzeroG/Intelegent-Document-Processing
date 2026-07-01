@@ -55,8 +55,14 @@ def to_json(rec: dict[str, Any]) -> str:
 
 def to_csv(rec: dict[str, Any]) -> str:
     """Single-row CSV export (header + row) using ground-truth columns."""
+    return to_csv_many([rec])
+
+
+def to_csv_many(records: list[dict[str, Any]]) -> str:
+    """Multi-row CSV export (header + one row per record), ground-truth columns."""
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=_CSV_COLUMNS)
     writer.writeheader()
-    writer.writerow(_flat_row(rec))
+    for rec in records:
+        writer.writerow(_flat_row(rec))
     return buf.getvalue()
