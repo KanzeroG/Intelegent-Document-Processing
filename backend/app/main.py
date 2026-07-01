@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from . import db
+from . import db, export
 from .auth import Role, get_current_role
 from .extraction import ExtractionError, extract_document
 from .loaders import load_document_as_base64_png
@@ -137,6 +137,41 @@ def get_document_file(doc_id: str) -> Response:
     return Response(content=data, media_type=mime, headers={
         "Content-Disposition": f'inline; filename="{filename}"',
     })
+
+
+@app.get("/documents/{doc_id}/export.json")
+def export_json(doc_id: str) -> Response:
+    rec = db.get_document(doc_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return Response(
+        content=export.to_json(rec),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{doc_id}.json"'},
+    )
+
+
+@app.get("/documents/{doc_id}/export.csv")
+def export_csv(doc_id: str) -> Response:
+    rec = db.get_document(doc_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return Response(
+        content=export.to_csv(rec),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{doc_id}.csv"'},
+    )
+
+
+@app.post("/mock-api/ingest")
+def mock_ingest(payload: dict) -> dict:
+    """Mock downstream system (e.g. an ERP). Accepts an approved document and
+    acknowledges receipt — stands in for a real integration."""
+    return {
+        "received": True,
+        "doc_id": payload.get("doc_id"),
+        "message": f"Document {payload.get('doc_number') or payload.get('doc_id')} accepted by downstream system.",
+    }
 
 
 class PatchBody(BaseModel):

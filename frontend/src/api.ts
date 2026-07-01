@@ -95,6 +95,24 @@ export async function getDocument(id: string): Promise<DocumentRecord> {
   return unwrap<DocumentRecord>(await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(id)}`));
 }
 
+// Downloadable export URLs (attachment) served by the backend.
+export function exportJsonUrl(id: string): string {
+  return `${API_BASE_URL}/documents/${encodeURIComponent(id)}/export.json`;
+}
+export function exportCsvUrl(id: string): string {
+  return `${API_BASE_URL}/documents/${encodeURIComponent(id)}/export.csv`;
+}
+
+// Hand an approved document to the mock downstream API (stands in for an ERP).
+export async function mockIngest(rec: DocumentRecord): Promise<{ received: boolean; message: string }> {
+  const payload = { ...rec.data, doc_id: rec.id };
+  return unwrap(await fetch(`${API_BASE_URL}/mock-api/ingest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }));
+}
+
 // Save corrected data and/or a new status; backend re-validates edited data.
 export async function patchDocument(
   id: string,

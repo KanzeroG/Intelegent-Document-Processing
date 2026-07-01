@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useDocuments, missingFields } from "../store";
-import { patchDocument, type ExtractedDocument } from "../api";
+import { patchDocument, mockIngest, exportJsonUrl, type ExtractedDocument } from "../api";
 import { formatNumber, DOC_TYPE_LABEL } from "../lib/format";
 
 const FIELD_LABEL: Record<string, string> = {
@@ -111,8 +111,16 @@ export default function ReviewPage() {
   }
   async function approve() {
     try {
-      replaceRecord(await patchDocument(rec!.id, { data: form!, status: "approved" }));
-      toast.success(`${rec!.doc_number ?? rec!.id} approved & exported`);
+      const updated = await patchDocument(rec!.id, { data: form!, status: "approved" });
+      replaceRecord(updated);
+      // Hand the approved data to the mock downstream API…
+      const ack = await mockIngest(updated);
+      // …and download the JSON export for the user.
+      const a = document.createElement("a");
+      a.href = exportJsonUrl(updated.id);
+      a.download = `${updated.doc_number ?? updated.id}.json`;
+      a.click();
+      toast.success(ack.message || "Approved & exported");
       navigate("/upload");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Approve failed");
