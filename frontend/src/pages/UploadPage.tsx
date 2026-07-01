@@ -1,271 +1,197 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+// Upload screen: drag-and-drop + processing settings on top, "My Documents"
+// table below. Extraction calls the real backend (/extract) and stores the
+// result so the Review and Dashboard screens can use it.
+
+import { useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
+import { extractDocument, type DocType } from "../api";
 import {
-  extractDocument,
-  type DocType,
-  type ExtractResponse,
-  type Role,
-} from "../api";
-import "./UploadPage.css";
+  useAuth,
+  useDocuments,
+  statusFromIssues,
+  computeConfidence,
+  type DocRecord,
+} from "../store";
+import StatusBadge from "../components/StatusBadge";
+import { DOC_TYPE_LABEL } from "../lib/format";
 
-function formatAmount(value: number | null): string {
-  if (value === null || value === undefined) return "—";
-  return value.toLocaleString("id-ID");
-}
+const TYPES: DocType[] = ["invoice", "purchase_order", "receipt"];
 
-export default function UploadPage({ role }: { role: Role }) {
-  const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<ExtractResponse | null>(null);
-  const [dragActive, setDragActive] = useState(false);
+export default function UploadPage() {
+  const { role } = useAuth();
+  const { docs, addDoc } = useDocuments();
+  const navigate = useNavigate();
+
   const [docType, setDocType] = useState<DocType>("invoice");
+  const [dragActive, setDragActive] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const previewUrl = useMemo(() => (file ? URL.createObjectURL(file) : null), [file]);
-  useEffect(() => {
-    return () => {
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-    };
-  }, [previewUrl]);
-
-  const isPdf = file?.type === "application/pdf" || file?.name.toLowerCase().endsWith(".pdf");
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true);
-    } else if (e.type === "dragleave") {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      handleFileSelection(e.dataTransfer.files[0]);
-    }
-  };
-
-  const handleFileSelection = (selectedFile: File) => {
-    setFile(selectedFile);
-    setResult(null);
-  };
-
-  async function handleExtract() {
-    if (!file) return;
+  async function handleFile(file: File) {
     setLoading(true);
-    setResult(null);
+    const previewUrl = URL.createObjectURL(file);
     try {
-      const extractPromise = extractDocument(file, docType, role);
-      toast.promise(extractPromise, {
-        loading: 'Extracting document data with AI...',
-        success: 'Extraction complete!',
-        error: (err) => err instanceof Error ? err.message : "Extraction failed."
+      const res = await toast.promise(extractDocument(file, docType, role ?? "user"), {
+        loading: "Extracting with the vision model…",
+        success: "Extraction complete",
+        error: (e) => (e instanceof Error ? e.message : "Extraction failed"),
       });
-      const res = await extractPromise;
-      setResult(res);
-      
-      if (res.issues && res.issues.length > 0) {
-        res.issues.forEach(iss => {
-           if (iss.severity === 'error') {
-             toast.error(`[${iss.field}] ${iss.message}`);
-           } else {
-             // Treat warnings as generic notifications or use an icon
-             toast(`[${iss.field}] ${iss.message}`, { icon: '⚠️' });
-           }
-        });
-      }
+      const rec: DocRecord = {
+        id: res.data.doc_number || `DOC-${Date.now().toString().slice(-6)}`,
+        fileName: file.name,
+        docType: res.doc_type,
+        uploadedAt: new Date().toISOString().slice(0, 10),
+        status: statusFromIssues(res.issues),
+        data: res.data,
+        issues: res.issues,
+        previewUrl,
+        confidence: computeConfidence(res.data, res.issues, res.doc_type),
+      };
+      addDoc(rec);
     } catch {
-      // Error surfaced by toast.promise above.
+      URL.revokeObjectURL(previewUrl);
     } finally {
       setLoading(false);
     }
   }
 
-  const doc = result?.data;
-
   return (
-    <div className="upload-page">
-      <div className="page-header">
-        <h2>Process New Document</h2>
-        <p className="muted">Upload an invoice, purchase order, or receipt for AI extraction.</p>
+    <div className="mx-auto max-w-6xl">
+      <h1 className="text-headline-lg text-text-primary">Upload Documents</h1>
+      <p className="mt-1 text-body-md text-on-surface-variant">
+        Intelligently process your financial documents using Indonesian-optimized AI.
+      </p>
+
+      <div className="mt-6 grid grid-cols-1 gap-gutter lg:grid-cols-3">
+        {/* Drop zone */}
+        <div className="lg:col-span-2">
+          <div
+            onDragEnter={(e) => {
+              e.preventDefault();
+              setDragActive(true);
+            }}
+            onDragOver={(e) => e.preventDefault()}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragActive(false);
+              if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]);
+            }}
+            onClick={() => inputRef.current?.click()}
+            className={[
+              "flex h-full min-h-[260px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed bg-surface-white p-8 text-center transition-colors",
+              dragActive ? "border-secondary bg-secondary/5" : "border-outline-variant",
+            ].join(" ")}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              accept="application/pdf,image/*"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+            />
+            <span className="material-symbols-outlined text-5xl text-secondary">cloud_upload</span>
+            <p className="mt-3 text-headline-md text-text-primary">
+              Drag an invoice, purchase order, or receipt here
+            </p>
+            <p className="mt-1 text-body-sm text-on-surface-variant">
+              Supports PDF, PNG, or JPG (Max 15MB)
+            </p>
+            <div className="mt-4 flex items-center gap-3">
+              <span className="rounded-lg bg-primary px-4 py-2 text-body-md font-semibold text-white">
+                {loading ? "Processing…" : "Browse files"}
+              </span>
+              <span className="text-body-sm text-on-surface-variant">or drop files here</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Processing settings */}
+        <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
+          <h3 className="text-headline-md text-text-primary">Processing Settings</h3>
+
+          <label className="mt-4 block">
+            <span className="text-label-md text-on-surface-variant">Document Type</span>
+            <select
+              value={docType}
+              onChange={(e) => setDocType(e.target.value as DocType)}
+              className="mt-1.5 h-10 w-full rounded-lg border border-border-base bg-surface-white px-3 text-body-md"
+            >
+              {TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {DOC_TYPE_LABEL[t]}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="mt-4 block">
+            <span className="text-label-md text-on-surface-variant">Extraction Language</span>
+            <div className="mt-1.5 flex h-10 items-center gap-2 rounded-lg border border-border-base px-3 text-body-md text-text-primary">
+              <span className="material-symbols-outlined text-base text-on-surface-variant">language</span>
+              Bahasa Indonesia / English
+            </div>
+          </label>
+
+          <label className="mt-4 flex items-start gap-2 text-body-sm text-text-primary">
+            <input type="checkbox" defaultChecked className="mt-0.5" />
+            Auto-validate common Indonesian VAT (PPN)
+          </label>
+
+          <div className="mt-4 flex gap-2 rounded-lg bg-secondary/5 p-3 text-body-sm text-secondary">
+            <span className="material-symbols-outlined text-base">info</span>
+            Documents are processed locally with a vision model optimized for PT/CV entities.
+          </div>
+        </div>
       </div>
 
-      <div className="upload-workspace">
-        {/* Left Side: Upload Controls & Document Preview */}
-        <div className="workspace-panel left-panel card">
-          <div className="card-header">
-            <div className="card-title">Document Source</div>
-          </div>
-          
-          <div className="upload-controls">
-            {!file ? (
-              <div 
-                className={`drag-drop-zone ${dragActive ? "drag-active" : ""}`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="application/pdf,image/*"
-                  style={{ display: "none" }}
-                  onChange={(e) => {
-                    if (e.target.files?.[0]) handleFileSelection(e.target.files[0]);
-                  }}
-                />
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                  <polyline points="17 8 12 3 7 8"></polyline>
-                  <line x1="12" y1="3" x2="12" y2="15"></line>
-                </svg>
-                <p className="upload-title">Drag & drop your document here</p>
-                <p className="upload-subtitle">or click to browse (PDF, PNG, JPG)</p>
-              </div>
-            ) : (
-              <div className="file-selected">
-                <div className="file-info">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent-primary)" strokeWidth="2">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                    <polyline points="14 2 14 8 20 8"></polyline>
-                  </svg>
-                  <span className="file-name">{file.name}</span>
-                  <button className="btn-icon" onClick={() => setFile(null)}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <line x1="18" y1="6" x2="6" y2="18"></line>
-                      <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                  </button>
-                </div>
-                <label className="input-label" htmlFor="doc-type">Document type</label>
-                <select
-                  id="doc-type"
-                  className="input-field"
-                  value={docType}
-                  onChange={(e) => setDocType(e.target.value as DocType)}
-                >
-                  <option value="invoice">Invoice</option>
-                  <option value="purchase_order">Purchase Order</option>
-                  <option value="receipt">Receipt</option>
-                </select>
-                <button
-                  className="btn btn-primary w-full"
-                  onClick={handleExtract}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <>
-                      <span className="spinner"></span> Extracting Data...
-                    </>
-                  ) : (
-                    "Extract with AI"
-                  )}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {previewUrl && (
-            <div className="preview-container">
-              {isPdf ? (
-                <iframe title="document preview" src={previewUrl} className="preview-frame" />
-              ) : (
-                <img alt="document preview" src={previewUrl} className="preview-image" />
-              )}
-            </div>
-          )}
+      {/* My Documents */}
+      <div className="mt-8 rounded-lg border border-border-base bg-surface-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-border-base px-5 py-4">
+          <h3 className="text-headline-md text-text-primary">My Documents</h3>
+          <span className="text-body-sm text-on-surface-variant">{docs.length} document(s)</span>
         </div>
 
-        {/* Right Side: Extraction Results */}
-        <div className="workspace-panel right-panel card">
-          <div className="card-header">
-            <div className="card-title">Extracted Data</div>
+        {docs.length === 0 ? (
+          <div className="px-5 py-12 text-center text-body-md text-on-surface-variant">
+            No documents yet — upload one above to get started.
           </div>
-          
-          {!doc && !loading && (
-            <div className="empty-state">
-              <svg viewBox="0 0 24 24" fill="none" stroke="var(--border-color)" strokeWidth="1">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                <line x1="9" y1="3" x2="9" y2="21"></line>
-              </svg>
-              <p>Run extraction to see structured data here.</p>
-            </div>
-          )}
-
-          {doc && (
-            <div className="results-container">
-              <div className="data-grid">
-                <div className="data-item">
-                  <span className="data-label">Doc Number</span>
-                  <span className="data-value">{doc.doc_number ?? "—"}</span>
-                </div>
-                <div className="data-item">
-                  <span className="data-label">Vendor</span>
-                  <span className="data-value">{doc.vendor ?? "—"}</span>
-                </div>
-                <div className="data-item">
-                  <span className="data-label">Buyer</span>
-                  <span className="data-value">{doc.buyer ?? "—"}</span>
-                </div>
-                <div className="data-item">
-                  <span className="data-label">Date</span>
-                  <span className="data-value">{doc.doc_date ?? "—"}</span>
-                </div>
-                <div className="data-item">
-                  <span className="data-label">Currency</span>
-                  <span className="data-value badge badge-low">{doc.currency}</span>
-                </div>
-                <div className="data-item">
-                  <span className="data-label">Subtotal</span>
-                  <span className="data-value">{formatAmount(doc.subtotal)}</span>
-                </div>
-                <div className="data-item">
-                  <span className="data-label">Tax (PPN)</span>
-                  <span className="data-value">{formatAmount(doc.tax_amount)}</span>
-                </div>
-                <div className="data-item total-item">
-                  <span className="data-label">Total Amount</span>
-                  <span className="data-value highlight">{formatAmount(doc.total_amount)}</span>
-                </div>
-              </div>
-
-              {doc.line_items.length > 0 && (
-                <div className="line-items-section">
-                  <h3 className="section-title">Line Items</h3>
-                  <div className="table-responsive">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Description</th>
-                          <th>Qty</th>
-                          <th>Unit Price</th>
-                          <th>Line Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {doc.line_items.map((li, i) => (
-                          <tr key={i}>
-                            <td>{li.description}</td>
-                            <td>{li.qty ?? "—"}</td>
-                            <td>{formatAmount(li.unit_price)}</td>
-                            <td>{formatAmount(li.line_total)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+        ) : (
+          <table className="w-full text-left">
+            <thead>
+              <tr className="text-label-sm uppercase text-on-surface-variant">
+                <th className="px-5 py-3">Doc ID</th>
+                <th className="px-5 py-3">File Name</th>
+                <th className="px-5 py-3">Type</th>
+                <th className="px-5 py-3">Uploaded</th>
+                <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="text-body-md">
+              {docs.map((d, i) => (
+                <tr key={d.id + i} className={i % 2 ? "bg-surface-container-low/40" : ""}>
+                  <td className="px-5 py-3 font-semibold text-secondary mono">{d.id}</td>
+                  <td className="px-5 py-3 text-text-primary">{d.fileName}</td>
+                  <td className="px-5 py-3 text-on-surface-variant">{DOC_TYPE_LABEL[d.docType]}</td>
+                  <td className="px-5 py-3 text-on-surface-variant">{d.uploadedAt}</td>
+                  <td className="px-5 py-3">
+                    <StatusBadge status={d.status} />
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button
+                      onClick={() => navigate(`/review/${encodeURIComponent(d.id)}`)}
+                      className="font-semibold text-secondary hover:underline"
+                    >
+                      View
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );

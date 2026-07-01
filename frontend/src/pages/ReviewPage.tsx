@@ -1,155 +1,254 @@
-import { useState, useEffect } from "react";
-import toast from "react-hot-toast";
-import "./ReviewPage.css";
+// Review screen (human-in-the-loop): document preview on the left, editable
+// extracted fields + line items + validation rules on the right. Data and
+// issues come from the real backend extraction stored on the Upload screen.
 
-// Mock data for the review queue
-const MOCK_QUEUE = [
-  {
-    id: "DOC-2023-0891",
-    type: "invoice",
-    vendor: "PT Sumber Makmur",
-    date: "2023-10-15",
-    total: 12450000,
-    status: "needs_review",
-    confidence: 85,
-    issues: ["Total amount mismatch with line items sum", "Low confidence on Invoice Date"],
-  },
-  {
-    id: "DOC-2023-0892",
-    type: "purchase_order",
-    vendor: "CV Mitra Teknik",
-    date: "2023-10-16",
-    total: 3900000,
-    status: "pending",
-    confidence: 98,
-    issues: [],
-  }
-];
+import { useMemo, useState } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import toast from "react-hot-toast";
+import { useDocuments, missingFields } from "../store";
+import type { ExtractedDocument } from "../api";
+import { formatNumber, DOC_TYPE_LABEL } from "../lib/format";
 
 export default function ReviewPage() {
-  const [selectedDoc, setSelectedDoc] = useState(MOCK_QUEUE[0]);
-  const [formData, setFormData] = useState({
-    vendor: selectedDoc.vendor,
-    date: selectedDoc.date,
-    total: selectedDoc.total,
-  });
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const { docs, getDoc, updateDoc } = useDocuments();
 
-  const handleApprove = () => {
-    toast.success("Document approved and data exported successfully!");
-    // In a real app, this would call an API and then load the next document.
-  };
+  // Pick the requested doc, else the first that needs review, else the first.
+  const rec =
+    (id && getDoc(decodeURIComponent(id))) ||
+    docs.find((d) => d.status === "flagged" || d.status === "in_review") ||
+    docs[0];
 
-  useEffect(() => {
-    if (selectedDoc.issues.length > 0) {
-      toast("This document has issues that need review", { icon: '⚠️', id: `issue-${selectedDoc.id}` });
-    }
-  }, [selectedDoc]);
+  const [form, setForm] = useState<ExtractedDocument | null>(rec ? rec.data : null);
+
+  // Which fields the validation flagged (for inline highlighting).
+  const flagged = useMemo(() => {
+    const map: Record<string, "error" | "warning"> = {};
+    rec?.issues.forEach((i) => {
+      const key = i.field.split("[")[0];
+      if (map[key] !== "error") map[key] = i.severity;
+    });
+    return map;
+  }, [rec]);
+
+  if (!rec || !form) {
+    return (
+      <div className="mx-auto max-w-3xl rounded-lg border border-border-base bg-surface-white p-12 text-center">
+        <span className="material-symbols-outlined text-5xl text-outline-variant">fact_check</span>
+        <h2 className="mt-3 text-headline-md text-text-primary">Nothing to review yet</h2>
+        <p className="mt-1 text-body-md text-on-surface-variant">
+          Upload and extract a document first.
+        </p>
+        <Link to="/upload" className="mt-4 inline-block font-semibold text-secondary hover:underline">
+          Go to Upload →
+        </Link>
+      </div>
+    );
+  }
+
+  const set = (k: keyof ExtractedDocument, v: unknown) =>
+    setForm((f) => (f ? { ...f, [k]: v } : f));
+
+  const fieldClass = (key: string) =>
+    [
+      "mt-1.5 h-10 w-full rounded-lg border px-3 text-body-md focus:outline-none",
+      flagged[key] === "error"
+        ? "border-status-error"
+        : flagged[key] === "warning"
+          ? "border-status-warning"
+          : "border-border-base focus:border-secondary",
+    ].join(" ");
+
+  // Expected fields (for this doc type) that are currently empty.
+  const missingSet = new Set<string>(missingFields(form, rec.docType) as string[]);
+  const confCls =
+    rec.confidence >= 90 ? "text-status-success" : rec.confidence >= 75 ? "text-status-warning" : "text-status-error";
+
+  function save() {
+    updateDoc(rec!.id, { data: form! });
+    toast.success("Corrections saved");
+  }
+  function approve() {
+    updateDoc(rec!.id, { data: form!, status: "approved" });
+    toast.success(`${rec!.id} approved & exported`);
+    navigate("/upload");
+  }
+  function reject() {
+    updateDoc(rec!.id, { status: "rejected" });
+    toast("Document rejected", { icon: "🚫" });
+    navigate("/upload");
+  }
 
   return (
-    <div className="review-page">
-      <div className="page-header">
-        <h2>Human-in-the-Loop Review</h2>
-        <p className="muted">Review extracted data, correct errors, and approve for export.</p>
+    <div className="mx-auto max-w-6xl">
+      <div className="flex items-center gap-2 text-body-sm text-on-surface-variant">
+        <Link to="/review" className="hover:underline">Review Queue</Link>
+        <span>›</span>
+        <span className="font-semibold text-text-primary">{rec.id}</span>
       </div>
 
-      <div className="review-layout">
-        {/* Left Sidebar: Queue */}
-        <div className="queue-panel card">
-          <div className="card-header">
-            <div className="card-title">Review Queue</div>
+      <div className="mt-4 grid grid-cols-1 gap-gutter lg:grid-cols-2">
+        {/* Document preview */}
+        <div className="overflow-hidden rounded-lg border border-border-base bg-inverse-surface">
+          <div className="flex items-center justify-between px-4 py-2 text-body-sm text-inverse-on-surface">
+            <span>{rec.fileName}</span>
+            <span className="mono">{DOC_TYPE_LABEL[rec.docType]}</span>
           </div>
-          <div className="queue-list">
-            {MOCK_QUEUE.map(doc => (
-              <div 
-                key={doc.id} 
-                className={`queue-item ${selectedDoc.id === doc.id ? "active" : ""}`}
-                onClick={() => {
-                  setSelectedDoc(doc);
-                  setFormData({ vendor: doc.vendor, date: doc.date, total: doc.total });
-                }}
-              >
-                <div className="queue-item-header">
-                  <span className="doc-id">{doc.id}</span>
-                  <span className={`badge ${doc.issues.length > 0 ? 'badge-warning' : 'badge-success'}`}>
-                    {doc.issues.length > 0 ? 'Issues' : 'Clean'}
-                  </span>
-                </div>
-                <div className="queue-item-details">
-                  <span className="vendor-name">{doc.vendor}</span>
-                  <span className="confidence">Acc: {doc.confidence}%</span>
-                </div>
-              </div>
+          {rec.previewUrl &&
+            (rec.fileName.toLowerCase().endsWith(".pdf") ? (
+              <iframe
+                title="preview"
+                src={`${rec.previewUrl}#view=FitH&toolbar=0&navpanes=0`}
+                className="h-[720px] w-full bg-white"
+              />
+            ) : (
+              <img alt="preview" src={rec.previewUrl} className="max-h-[720px] w-full bg-white object-contain" />
             ))}
-          </div>
         </div>
 
-        {/* Center: Document Preview */}
-        <div className="preview-panel card">
-          <div className="card-header">
-            <div className="card-title">Document: {selectedDoc.id}</div>
-          </div>
-          <div className="preview-placeholder">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
-              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-              <line x1="9" y1="3" x2="9" y2="21"></line>
-            </svg>
-            <p>Document preview will appear here.</p>
-            <p className="muted" style={{ fontSize: '0.75rem' }}>Dummy data mode</p>
-          </div>
-        </div>
+        {/* Extraction panel */}
+        <div className="space-y-gutter">
+          <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h2 className="text-headline-md text-text-primary">
+                {rec.id}
+                <span className="ml-2 rounded bg-secondary/10 px-2 py-0.5 text-label-sm text-secondary">
+                  {DOC_TYPE_LABEL[rec.docType].toUpperCase()}
+                </span>
+              </h2>
+              <span className={`flex items-center gap-1 text-body-sm font-semibold ${confCls}`}>
+                <span className="material-symbols-outlined text-base">verified</span>
+                {rec.confidence}% Confidence
+              </span>
+            </div>
 
-        {/* Right: Data Form */}
-        <div className="form-panel card">
-          <div className="card-header">
-            <div className="card-title">Extracted Data</div>
-          </div>
-          
-          <div className="form-fields">
-            <div className="input-group">
-              <label className="input-label">Vendor Name <span className="req">*</span></label>
-              <input 
-                type="text" 
-                className="input-field" 
-                value={formData.vendor}
-                onChange={e => setFormData({...formData, vendor: e.target.value})}
-              />
-            </div>
-            <div className={`input-group ${selectedDoc.issues.some(i => i.includes('Date')) ? 'has-warning' : ''}`}>
-              <label className="input-label">Invoice Date</label>
-              <input 
-                type="date" 
-                className="input-field" 
-                value={formData.date}
-                onChange={e => setFormData({...formData, date: e.target.value})}
-              />
-              {selectedDoc.issues.some(i => i.includes('Date')) && (
-                <span className="field-warning">Low confidence</span>
-              )}
-            </div>
-            <div className={`input-group ${selectedDoc.issues.some(i => i.includes('Total')) ? 'has-error' : ''}`}>
-              <label className="input-label">Total Amount</label>
-              <input 
-                type="number" 
-                className="input-field" 
-                value={formData.total}
-                onChange={e => setFormData({...formData, total: Number(e.target.value)})}
-              />
-              {selectedDoc.issues.some(i => i.includes('Total')) && (
-                <span className="field-error">Mismatch with line items</span>
-              )}
+            <div className="mt-4 text-label-sm uppercase text-on-surface-variant">Extracted Header Fields</div>
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <Field label="Doc Number" k="doc_number" value={form.doc_number ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("doc_number")} />
+              <Field label="Vendor Name" k="vendor" value={form.vendor ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("vendor")} />
+              <Field label="Buyer" k="buyer" value={form.buyer ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("buyer")} />
+              <Field label="Date" k="doc_date" value={form.doc_date ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("doc_date")} />
+              <Field label="Currency" k="currency" value={form.currency ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("currency")} />
+              <NumField label="Subtotal" k="subtotal" value={form.subtotal} onChange={set} cls={fieldClass} missing={missingSet.has("subtotal")} />
+              <NumField label="Tax (PPN)" k="tax_amount" value={form.tax_amount} onChange={set} cls={fieldClass} missing={missingSet.has("tax_amount")} />
+              <NumField label="Total Amount" k="total_amount" value={form.total_amount} onChange={set} cls={fieldClass} missing={missingSet.has("total_amount")} />
             </div>
           </div>
 
-          <div className="form-actions">
-            <button className="btn btn-secondary w-full">Flag for Manual Entry</button>
-            <button className="btn btn-primary w-full" onClick={handleApprove}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width: 16, height: 16}}>
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-              Approve & Export
+          {/* Line items */}
+          <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
+            <div className="text-label-sm uppercase text-on-surface-variant">
+              Line Items ({form.line_items.length})
+            </div>
+            <table className="mt-2 w-full text-left text-body-sm">
+              <thead>
+                <tr className="text-label-sm uppercase text-on-surface-variant">
+                  <th className="py-1.5">Description</th>
+                  <th className="py-1.5 text-right">Qty</th>
+                  <th className="py-1.5 text-right">Unit Price</th>
+                  <th className="py-1.5 text-right">Line Total</th>
+                </tr>
+              </thead>
+              <tbody className="mono">
+                {form.line_items.map((li, i) => (
+                  <tr key={i} className="border-t border-border-base">
+                    <td className="py-1.5 font-sans">{li.description}</td>
+                    <td className="py-1.5 text-right">{li.qty ?? "—"}</td>
+                    <td className="py-1.5 text-right">{formatNumber(li.unit_price)}</td>
+                    <td className="py-1.5 text-right">{formatNumber(li.line_total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Validation rules */}
+          <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
+            <div className="text-label-sm uppercase text-on-surface-variant">Validation Rules</div>
+            <div className="mt-3 space-y-2">
+              {rec.issues.length === 0 && (
+                <Rule severity="success" title="All checks passed" detail="No validation issues found." />
+              )}
+              {rec.issues.map((iss, i) => (
+                <Rule key={i} severity={iss.severity} title={iss.field} detail={iss.message} />
+              ))}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center justify-end gap-3">
+            <button onClick={reject} className="flex items-center gap-1 rounded-lg border border-status-error px-4 py-2.5 font-semibold text-status-error">
+              <span className="material-symbols-outlined text-base">cancel</span> Reject
+            </button>
+            <button onClick={save} className="rounded-lg border border-border-base px-4 py-2.5 font-semibold text-text-primary">
+              Save Corrections
+            </button>
+            <button onClick={approve} className="rounded-lg bg-primary px-4 py-2.5 font-semibold text-white hover:bg-primary-container">
+              Approve &amp; Export
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MissingTag() {
+  return (
+    <span className="ml-2 inline-flex items-center gap-0.5 rounded bg-status-warning/10 px-1.5 py-0.5 text-label-sm text-status-warning">
+      <span className="material-symbols-outlined text-[13px]">warning</span> Missing
+    </span>
+  );
+}
+
+function Field({ label, k, value, onChange, cls, missing }: {
+  label: string; k: keyof ExtractedDocument; value: string;
+  onChange: (k: keyof ExtractedDocument, v: unknown) => void; cls: (key: string) => string; missing?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="text-label-md text-on-surface-variant">{label}{missing && <MissingTag />}</span>
+      <input
+        value={value}
+        placeholder={missing ? "Missing — enter manually" : ""}
+        onChange={(e) => onChange(k, e.target.value)}
+        className={`${cls(k as string)} ${missing ? "border-status-warning placeholder:text-status-warning/70" : ""}`}
+      />
+    </label>
+  );
+}
+
+function NumField({ label, k, value, onChange, cls, missing }: {
+  label: string; k: keyof ExtractedDocument; value: number | null;
+  onChange: (k: keyof ExtractedDocument, v: unknown) => void; cls: (key: string) => string; missing?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="text-label-md text-on-surface-variant">{label}{missing && <MissingTag />}</span>
+      <input
+        type="number"
+        value={value ?? ""}
+        placeholder={missing ? "Missing" : ""}
+        onChange={(e) => onChange(k, e.target.value === "" ? null : Number(e.target.value))}
+        className={`${cls(k as string)} mono ${missing ? "border-status-warning" : ""}`}
+      />
+    </label>
+  );
+}
+
+function Rule({ severity, title, detail }: { severity: "error" | "warning" | "success"; title: string; detail: string }) {
+  const cfg = {
+    error: { icon: "error", cls: "bg-status-error/5 text-status-error", border: "border-status-error/30" },
+    warning: { icon: "warning", cls: "bg-status-warning/5 text-status-warning", border: "border-status-warning/30" },
+    success: { icon: "check_circle", cls: "bg-status-success/5 text-status-success", border: "border-status-success/30" },
+  }[severity];
+  return (
+    <div className={`flex gap-2 rounded-lg border ${cfg.border} ${cfg.cls} p-3`}>
+      <span className="material-symbols-outlined text-base">{cfg.icon}</span>
+      <div>
+        <div className="text-body-sm font-semibold capitalize">{title}</div>
+        <div className="text-body-sm opacity-90">{detail}</div>
       </div>
     </div>
   );

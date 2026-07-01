@@ -1,173 +1,175 @@
-import { useEffect } from "react";
-import toast from "react-hot-toast";
-import "./DashboardPage.css";
+// Monitoring dashboard. Metric cards and the activity table are derived from
+// the real in-memory document store; the trend chart is illustrative. Mirrors
+// the DocExtract design (deliverables #5/#6 surface here later).
+
+import { Link } from "react-router-dom";
+import { useDocuments } from "../store";
+import StatusBadge from "../components/StatusBadge";
+import { formatIDR, DOC_TYPE_LABEL } from "../lib/format";
+
+// Indicative manual-entry cost per document (IDR) for the ROI comparison.
+const MANUAL_COST_PER_DOC = 18000;
+const AUTO_COST_PER_DOC = 1200;
 
 export default function DashboardPage() {
-  useEffect(() => {
-    toast("ROI Milestone Reached! The AI extraction pipeline has now paid for its implementation cost.", {
-      icon: '🚀',
-      id: 'roi-toast'
-    });
-  }, []);
+  const { docs } = useDocuments();
+
+  const total = docs.length;
+  const pending = docs.filter((d) => d.status === "in_review" || d.status === "flagged").length;
+  const approved = docs.filter((d) => d.status === "approved").length;
+  const flagged = docs.filter((d) => d.status === "flagged").length;
+  const accuracy = total ? Math.round(docs.reduce((a, d) => a + d.confidence, 0) / total) : 0;
+
+  const byType = (["invoice", "purchase_order", "receipt"] as const).map((t) => ({
+    type: t,
+    count: docs.filter((d) => d.docType === t).length,
+  }));
+  const maxType = Math.max(1, ...byType.map((b) => b.count));
+
+  // Count validation issues by rule (field) across all docs.
+  const ruleCounts: Record<string, number> = {};
+  docs.forEach((d) => d.issues.forEach((i) => {
+    const key = i.field.split("[")[0];
+    ruleCounts[key] = (ruleCounts[key] ?? 0) + 1;
+  }));
+  const topRules = Object.entries(ruleCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
+
+  const manualCost = total * MANUAL_COST_PER_DOC;
+  const autoCost = total * AUTO_COST_PER_DOC;
 
   return (
-    <div className="dashboard-page">
-      <div className="page-header">
-        <h2>Business Analytics & ROI</h2>
-        <p className="muted">Monitor system performance, accuracy metrics, and automation ROI.</p>
+    <div className="mx-auto max-w-6xl">
+      <h1 className="text-headline-lg text-text-primary">Monitoring Dashboard</h1>
+      <p className="mt-1 text-body-md text-on-surface-variant">
+        System performance, accuracy metrics, and automation ROI (this session).
+      </p>
+
+      {/* Metric cards */}
+      <div className="mt-6 grid grid-cols-2 gap-gutter lg:grid-cols-4">
+        <Metric icon="description" label="Total Documents" value={total} tint="text-secondary" />
+        <Metric icon="pending_actions" label="Pending Review" value={pending} tint="text-status-warning" />
+        <Metric icon="task_alt" label="Approved" value={approved} tint="text-status-success" />
+        <Metric icon="flag" label="Flagged Issues" value={flagged} tint="text-status-error" />
       </div>
 
-      {/* Top Metrics Cards */}
-      <div className="metrics-grid">
-        <div className="metric-card card">
-          <div className="metric-icon bg-blue">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-              <polyline points="14 2 14 8 20 8"></polyline>
-              <line x1="16" y1="13" x2="8" y2="13"></line>
-              <line x1="16" y1="17" x2="8" y2="17"></line>
-              <polyline points="10 9 9 9 8 9"></polyline>
-            </svg>
+      <div className="mt-gutter grid grid-cols-1 gap-gutter lg:grid-cols-3">
+        {/* Docs by type */}
+        <Card title="Docs by Type">
+          <div className="space-y-3">
+            {byType.map((b) => (
+              <div key={b.type}>
+                <div className="flex justify-between text-body-sm text-on-surface-variant">
+                  <span>{DOC_TYPE_LABEL[b.type]}</span>
+                  <span className="mono">{b.count}</span>
+                </div>
+                <div className="mt-1 h-2 rounded-full bg-surface-container">
+                  <div className="h-2 rounded-full bg-secondary" style={{ width: `${(b.count / maxType) * 100}%` }} />
+                </div>
+              </div>
+            ))}
           </div>
-          <div className="metric-info">
-            <span className="metric-label">Documents Processed</span>
-            <span className="metric-value">12,450</span>
-            <span className="metric-trend positive">↑ 14% this month</span>
-          </div>
-        </div>
+        </Card>
 
-        <div className="metric-card card">
-          <div className="metric-icon bg-green">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"></circle>
-              <polyline points="12 6 12 12 16 14"></polyline>
-            </svg>
+        {/* Accuracy + issues by rule */}
+        <Card title="Accuracy Score">
+          <div className="flex items-end gap-2">
+            <span className="text-display text-text-primary">{accuracy}%</span>
+            <span className="mb-2 text-body-sm text-on-surface-variant">avg confidence</span>
           </div>
-          <div className="metric-info">
-            <span className="metric-label">Time Saved (Hours)</span>
-            <span className="metric-value">3,112</span>
-            <span className="metric-trend positive">↑ 22% this month</span>
+          <div className="mt-3 h-2 rounded-full bg-surface-container">
+            <div className="h-2 rounded-full bg-status-success" style={{ width: `${accuracy}%` }} />
           </div>
-        </div>
+        </Card>
 
-        <div className="metric-card card">
-          <div className="metric-icon bg-purple">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
-            </svg>
-          </div>
-          <div className="metric-info">
-            <span className="metric-label">Est. Cost Savings</span>
-            <span className="metric-value">$62,240</span>
-            <span className="metric-trend positive">↑ 18% this month</span>
-          </div>
-        </div>
-
-        <div className="metric-card card">
-          <div className="metric-icon bg-orange">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-              <polyline points="22 4 12 14.01 9 11.01"></polyline>
-            </svg>
-          </div>
-          <div className="metric-info">
-            <span className="metric-label">Extraction Accuracy</span>
-            <span className="metric-value">97.4%</span>
-            <span className="metric-trend neutral">- 0.2% this month</span>
-          </div>
-        </div>
+        <Card title="Issues by Rule">
+          {topRules.length === 0 ? (
+            <p className="text-body-sm text-on-surface-variant">No issues recorded.</p>
+          ) : (
+            <ul className="space-y-2 text-body-sm">
+              {topRules.map(([rule, n]) => (
+                <li key={rule} className="flex justify-between">
+                  <span className="text-on-surface-variant">{rule}</span>
+                  <span className="mono font-semibold text-status-error">{n}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
       </div>
 
-      {/* Main Dashboard Area */}
-      <div className="dashboard-main">
-        <div className="chart-panel card">
-          <div className="card-header">
-            <div className="card-title">Processing Volume vs. Manual Entry</div>
+      {/* Efficiency impact + recent activity */}
+      <div className="mt-gutter grid grid-cols-1 gap-gutter lg:grid-cols-3">
+        <Card title="Efficiency Impact (this session)">
+          <CostRow label="Manual processing cost" value={manualCost} cls="bg-status-error" max={manualCost || 1} amount={manualCost} />
+          <CostRow label="Automated cost" value={autoCost} cls="bg-status-success" max={manualCost || 1} amount={autoCost} />
+          <div className="mt-3 rounded-lg bg-status-success/5 p-3 text-body-sm text-status-success">
+            Estimated savings: <span className="font-semibold mono">{formatIDR(manualCost - autoCost)}</span>
           </div>
-          <div className="chart-placeholder">
-            <div className="bar-chart-mock">
-              <div className="chart-col">
-                <div className="bar auto" style={{height: '60%'}}></div>
-                <div className="bar manual" style={{height: '20%'}}></div>
-                <span>Jan</span>
-              </div>
-              <div className="chart-col">
-                <div className="bar auto" style={{height: '65%'}}></div>
-                <div className="bar manual" style={{height: '18%'}}></div>
-                <span>Feb</span>
-              </div>
-              <div className="chart-col">
-                <div className="bar auto" style={{height: '75%'}}></div>
-                <div className="bar manual" style={{height: '15%'}}></div>
-                <span>Mar</span>
-              </div>
-              <div className="chart-col">
-                <div className="bar auto" style={{height: '85%'}}></div>
-                <div className="bar manual" style={{height: '10%'}}></div>
-                <span>Apr</span>
-              </div>
-              <div className="chart-col">
-                <div className="bar auto" style={{height: '92%'}}></div>
-                <div className="bar manual" style={{height: '8%'}}></div>
-                <span>May</span>
-              </div>
-            </div>
-            <div className="chart-legend">
-              <span className="legend-item"><span className="dot dot-auto"></span> AI Processed</span>
-              <span className="legend-item"><span className="dot dot-manual"></span> Manual Correction</span>
-            </div>
-          </div>
+        </Card>
+
+        <div className="lg:col-span-2">
+          <Card title="Recent Activity">
+            {docs.length === 0 ? (
+              <p className="text-body-sm text-on-surface-variant">No activity yet.</p>
+            ) : (
+              <table className="w-full text-left text-body-sm">
+                <thead>
+                  <tr className="text-label-sm uppercase text-on-surface-variant">
+                    <th className="py-2">Doc ID</th>
+                    <th className="py-2">Type</th>
+                    <th className="py-2">Status</th>
+                    <th className="py-2 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {docs.slice(0, 6).map((d, i) => (
+                    <tr key={d.id + i} className="border-t border-border-base">
+                      <td className="py-2 font-semibold text-secondary mono">
+                        <Link to={`/review/${encodeURIComponent(d.id)}`}>{d.id}</Link>
+                      </td>
+                      <td className="py-2 text-on-surface-variant">{DOC_TYPE_LABEL[d.docType]}</td>
+                      <td className="py-2"><StatusBadge status={d.status} /></td>
+                      <td className="py-2 text-right mono">{formatIDR(d.data.total_amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </Card>
         </div>
+      </div>
+    </div>
+  );
+}
 
-        <div className="side-panel card">
-          <div className="card-header">
-            <div className="card-title">Accuracy by Document Type</div>
-          </div>
-          <div className="progress-list">
-            <div className="progress-item">
-              <div className="progress-header">
-                <span>Invoices</span>
-                <span>98.5%</span>
-              </div>
-              <div className="progress-bar-bg">
-                <div className="progress-bar-fill" style={{width: '98.5%', backgroundColor: 'var(--success)'}}></div>
-              </div>
-            </div>
-            
-            <div className="progress-item">
-              <div className="progress-header">
-                <span>Purchase Orders</span>
-                <span>96.2%</span>
-              </div>
-              <div className="progress-bar-bg">
-                <div className="progress-bar-fill" style={{width: '96.2%', backgroundColor: 'var(--success)'}}></div>
-              </div>
-            </div>
+function Metric({ icon, label, value, tint }: { icon: string; label: string; value: number; tint: string }) {
+  return (
+    <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
+      <span className={`material-symbols-outlined ${tint}`}>{icon}</span>
+      <div className="mt-2 text-display text-text-primary">{value}</div>
+      <div className="text-body-sm text-on-surface-variant">{label}</div>
+    </div>
+  );
+}
 
-            <div className="progress-item">
-              <div className="progress-header">
-                <span>Receipts</span>
-                <span>92.8%</span>
-              </div>
-              <div className="progress-bar-bg">
-                <div className="progress-bar-fill" style={{width: '92.8%', backgroundColor: 'var(--warning)'}}></div>
-              </div>
-            </div>
-            
-            <div className="progress-item">
-              <div className="progress-header">
-                <span>Handwritten Forms</span>
-                <span>84.1%</span>
-              </div>
-              <div className="progress-bar-bg">
-                <div className="progress-bar-fill" style={{width: '84.1%', backgroundColor: 'var(--error)'}}></div>
-              </div>
-            </div>
-          </div>
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
+      <h3 className="text-headline-md text-text-primary">{title}</h3>
+      <div className="mt-4">{children}</div>
+    </div>
+  );
+}
 
-          <div className="business-case mt-4">
-          </div>
-        </div>
+function CostRow({ label, cls, max, amount }: { label: string; value: number; cls: string; max: number; amount: number }) {
+  return (
+    <div className="mb-3">
+      <div className="flex justify-between text-body-sm text-on-surface-variant">
+        <span>{label}</span>
+        <span className="mono">{formatIDR(amount)}</span>
+      </div>
+      <div className="mt-1 h-2 rounded-full bg-surface-container">
+        <div className={`h-2 rounded-full ${cls}`} style={{ width: `${Math.min(100, (amount / max) * 100)}%` }} />
       </div>
     </div>
   );
