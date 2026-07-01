@@ -68,10 +68,18 @@ def _norm_items(items) -> list[tuple]:
     return out
 
 
-def _compare(pred: dict, gt: dict) -> dict[str, bool]:
-    """Return {field: correct?} for one document."""
-    result: dict[str, bool] = {}
+def _compare(pred: dict, gt: dict, doc_type: str) -> dict[str, bool | None]:
+    """Return {field: correct?} for one document. None means "not applicable".
+
+    Receipts don't print a buyer, so scoring buyer against the ground truth
+    (which lists one regardless) would measure the label generator, not the
+    model — we mark it N/A instead.
+    """
+    result: dict[str, bool | None] = {}
     for f in _STR_FIELDS:
+        if f == "buyer" and doc_type == "receipt":
+            result[f] = None  # buyer is not printed on receipts
+            continue
         result[f] = _norm_str(pred.get(f)) == _norm_str(gt.get(f))
     for f in _NUM_FIELDS:
         result[f] = _num(pred.get(f)) == _num(gt.get(f))
@@ -96,6 +104,7 @@ def main() -> None:
 
     print(f"Evaluating {len(rows)} document(s)…\n")
     per_field_correct = {f: 0 for f in _FIELDS}
+    per_field_total = {f: 0 for f in _FIELDS}  # applicable-doc count per field
     per_doc_results = []
     docs_all_correct = 0
     t0 = time.time()
@@ -112,18 +121,25 @@ def main() -> None:
             doc = extract_document(b64, _TYPE[gt["doc_type"]])
             data = doc.model_dump(mode="json")
             data["line_item_count"] = doc.line_item_count
-            cmp = _compare(data, gt)
+            cmp = _compare(data, gt, gt["doc_type"])
         except Exception as exc:  # keep going on a single failure
             print(f"  {doc_id}: ERROR {str(exc)[:80]}")
             continue
 
         for f, ok in cmp.items():
+            if ok is None:  # not applicable to this doc type
+                continue
+            per_field_total[f] += 1
             per_field_correct[f] += int(ok)
-        n_ok = sum(cmp.values())
-        docs_all_correct += int(n_ok == len(_FIELDS))
-        per_doc_results.append({"doc_id": doc_id, "doc_type": gt["doc_type"], **cmp})
+        applicable = [v for v in cmp.values() if v is not None]
+        n_ok = sum(1 for v in applicable if v)
+        docs_all_correct += int(n_ok == len(applicable))
+        per_doc_results.append({
+            "doc_id": doc_id, "doc_type": gt["doc_type"],
+            **{f: ("n/a" if v is None else int(v)) for f, v in cmp.items()},
+        })
         print(f"  [{i}/{len(rows)}] {doc_id} ({gt['doc_type']}) "
-              f"{n_ok}/{len(_FIELDS)} fields ok [{time.time() - t:.0f}s]")
+              f"{n_ok}/{len(applicable)} fields ok [{time.time() - t:.0f}s]")
 
     n = len(per_doc_results)
     if n == 0:
@@ -138,14 +154,18 @@ def main() -> None:
         w.writerows(per_doc_results)
 
     # Summary.
-    print(f"\n{'='*44}\nField-level accuracy over {n} document(s):")
+    print(f"\n{'='*46}\nField-level accuracy over {n} document(s):")
     for f in _FIELDS:
-        acc = per_field_correct[f] / n * 100
-        print(f"  {f:<16} {acc:6.1f}%  ({per_field_correct[f]}/{n})")
-    micro = sum(per_field_correct.values()) / (n * len(_FIELDS)) * 100
+        tot = per_field_total[f]
+        acc = (per_field_correct[f] / tot * 100) if tot else 0.0
+        na = "" if tot == n else f"  (n/a for {n - tot})"
+        print(f"  {f:<16} {acc:6.1f}%  ({per_field_correct[f]}/{tot}){na}")
+    total_cells = sum(per_field_total.values())
+    micro = sum(per_field_correct.values()) / total_cells * 100 if total_cells else 0.0
     print(f"\n  {'OVERALL (micro)':<16} {micro:6.1f}%")
     print(f"  {'docs fully correct':<16} {docs_all_correct}/{n}")
-    print(f"\nElapsed {time.time() - t0:.0f}s · detail written to {_OUT.relative_to(_ROOT)}")
+    print("\nNote: 'buyer' is N/A for receipts (not printed on the document).")
+    print(f"Elapsed {time.time() - t0:.0f}s · detail written to {_OUT.relative_to(_ROOT)}")
 
 
 if __name__ == "__main__":
