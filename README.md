@@ -1,7 +1,7 @@
 # Intelligent Document Processing (Extraction & Automation)
 
 Upload a document (invoice, purchase order, or receipt) → a **local multimodal
-vision model** (`qwen2.5vl:3b` via Ollama) reads it and returns clean,
+vision model** (`qwen/qwen3-vl-4b` via LM Studio) reads it and returns clean,
 **structured JSON** → the data is **validated** → a human **reviews & approves**
 → it's **exported**. Project 4 of the LapisAI / Xquisite AI offering.
 
@@ -12,13 +12,13 @@ vision model** (`qwen2.5vl:3b` via Ollama) reads it and returns clean,
 ## Architecture
 
 ```
-React (Vite)  ──HTTP──►  FastAPI (Python)  ──►  Ollama local server (qwen2.5vl:3b)
+React (Vite)  ──HTTP──►  FastAPI (Python)  ──►  LM Studio server (qwen/qwen3-vl-4b)
    UI / review              extraction                 vision model
                             validation
                             export
 ```
 
-The **backend + model run locally** (Ollama on `localhost:11434`). A
+The **backend + model run locally** (LM Studio on `127.0.0.1:1234`). A
 cloud-hosted (e.g. Vercel) frontend cannot reach a model on your laptop, so for
 development run everything locally. The frontend's API URL is configurable via
 `VITE_API_BASE_URL` for when the backend is reachable elsewhere.
@@ -31,8 +31,8 @@ export, accuracy evaluation, the staff review screen, and the admin dashboard.
 
 ## Prerequisites
 
-1. **Ollama** running with the vision model pulled:
-   `ollama pull qwen2.5vl:3b` (server at `http://localhost:11434`).
+1. **LM Studio** with `qwen/qwen3-vl-4b` loaded (context length ~16k) and its
+   server started (OpenAI-compatible at `http://127.0.0.1:1234/v1`).
 2. **Python 3.11+** and **Node 18+**.
 
 ## Run it

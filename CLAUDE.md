@@ -29,8 +29,8 @@ The six required deliverables (see PDF for detail):
 
 | Layer | Choice | Notes |
 |---|---|---|
-| Vision model | **qwen2.5vl:3b** (Qwen2.5-VL) | Multimodal/vision; pulled in Ollama |
-| Model serving | **Ollama** | Local server at `http://localhost:11434` |
+| Vision model | **qwen/qwen3-vl-4b** (Qwen3-VL-4B) | Multimodal/vision; loaded in LM Studio |
+| Model serving | **LM Studio** | OpenAI-compatible server at `http://127.0.0.1:1234/v1` |
 | Backend | **Python + FastAPI** | All extraction/validation logic lives here |
 | Data models | **pydantic** | Schemas are the extraction "contract" |
 | Document loading | **PyMuPDF / pdf2image** | PDF/image → model-readable bytes |
@@ -38,12 +38,13 @@ The six required deliverables (see PDF for detail):
 | Roles | **user / staff / admin** | Maps to the review workflow (see below) |
 
 **Why these choices matter for the code:**
-- The model is served **locally** via Ollama. We call Ollama's **native `/api/chat`**
-  (`http://localhost:11434/api/chat`) rather than the OpenAI shim, because a rasterized
-  document image overflows the default 4096-token context — we must pass `options.num_ctx`
-  (16384). Model name is `qwen2.5vl:3b`. (History: the team first tried LM Studio + Qwen3-VL,
-  then `gemma4:e4b-mlx`/`e2b-it-qat` in Ollama; e4b-mlx has no vision and e2b-qat misread
-  Rupiah figures, so we standardized on `qwen2.5vl:3b`.)
+- The model is served **locally** via LM Studio's OpenAI-compatible endpoint
+  (`http://127.0.0.1:1234/v1/chat/completions`); the image is passed as a base64 data-URI
+  `image_url`. Model name is `qwen/qwen3-vl-4b`. The model must be **loaded with ~16k context**
+  in LM Studio (a rasterized document image is ~4-5k tokens); the OpenAI API has no per-request
+  context knob. (History: the team briefly ran `qwen2.5vl:3b` and `gemma4:*` in Ollama —
+  gemma4:e4b-mlx has no vision, e2b-qat misread Rupiah figures — then standardized on
+  LM Studio + `qwen/qwen3-vl-4b`.)
 - **The vision model IS the OCR.** Do NOT add Tesseract/PaddleOCR in the main path. The model
   reads the image and outputs structured fields in one step.
 - **Indonesian dot-thousands is THE accuracy risk.** The model reads `Rp 240.000` as `240`.
@@ -57,7 +58,7 @@ The six required deliverables (see PDF for detail):
 ## Architecture
 
 ```
-React (Vite)  ──HTTP──►  FastAPI (Python)  ──►  Ollama local server (qwen2.5vl:3b)
+React (Vite)  ──HTTP──►  FastAPI (Python)  ──►  LM Studio server (qwen/qwen3-vl-4b)
    UI / review              extraction                 vision model
                             validation
                             export

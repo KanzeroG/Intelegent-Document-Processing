@@ -1,13 +1,16 @@
 """Extraction: send a document image to the local vision model, get structured JSON.
 
 Flow:
-  base64 image  ->  prompt embedding the pydantic JSON schema  ->  Ollama
+  base64 image  ->  prompt embedding the pydantic JSON schema  ->  LM Studio
   ->  strip markdown fences  ->  model_validate_json()
 
-The model is served locally by **Ollama** (`qwen2.5vl:3b`, a vision model). We
-call Ollama's native `/api/chat` endpoint rather than the OpenAI-compatible
-shim because we must set `num_ctx`: a rasterized document image is ~3-4k tokens
-and overflows Ollama's default 4096-token context, which otherwise 400s.
+The model is served locally by **LM Studio** (`qwen/qwen3-vl-4b`, a vision
+model) via its OpenAI-compatible endpoint at `http://127.0.0.1:1234/v1`. The
+document image is passed as a base64 data-URI in an `image_url` content part.
+
+Context length note: a rasterized document image is ~4-5k tokens, so the model
+must be loaded in LM Studio with a context length of at least ~16k (set on the
+model-load screen). The OpenAI-compatible API has no per-request context knob.
 
 Indonesian number gotcha (the central accuracy risk): amounts print as
 `Rp 240.000`, where `.` is a *thousands separator*. Vision models love to read
@@ -26,11 +29,10 @@ import httpx  # bundled via the openai dependency
 
 from .schemas import Document, DocumentType
 
-# --- Ollama connection (local) -----------------------------------------------
-OLLAMA_URL = "http://localhost:11434/api/chat"
-MODEL_NAME = "qwen2.5vl:3b"
-NUM_CTX = 16384  # must exceed image (~4-5k tokens at zoom 3) + schema prompt + reply
-REQUEST_TIMEOUT = 300.0  # seconds; cold model load + inference can be slow on 16GB
+# --- LM Studio connection (local, OpenAI-compatible) -------------------------
+LM_STUDIO_URL = "http://127.0.0.1:1234/v1/chat/completions"
+MODEL_NAME = "qwen/qwen3-vl-4b"
+REQUEST_TIMEOUT = 300.0  # seconds; inference on the 4B VL model can be slow on 16GB
 
 
 class ExtractionError(RuntimeError):
@@ -144,27 +146,31 @@ def extract_document(image_b64: str, doc_type: DocumentType) -> Document:
     """
     payload = {
         "model": MODEL_NAME,
-        "stream": False,
-        "options": {"temperature": 0, "num_ctx": NUM_CTX},
+        "temperature": 0,
         "messages": [
             {
                 "role": "user",
-                "content": _build_prompt(doc_type),
-                "images": [image_b64],
+                "content": [
+                    {"type": "text", "text": _build_prompt(doc_type)},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{image_b64}"},
+                    },
+                ],
             }
         ],
     }
 
     try:
-        resp = httpx.post(OLLAMA_URL, json=payload, timeout=REQUEST_TIMEOUT)
+        resp = httpx.post(LM_STUDIO_URL, json=payload, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
     except httpx.HTTPError as exc:
         raise ExtractionError(
-            "Could not reach the local vision model. Is Ollama running with "
-            f"'{MODEL_NAME}' pulled? ({exc})"
+            "Could not reach the local vision model. Is LM Studio running with "
+            f"'{MODEL_NAME}' loaded and its server started at {LM_STUDIO_URL}? ({exc})"
         ) from exc
 
-    content = resp.json().get("message", {}).get("content", "")
+    content = resp.json()["choices"][0]["message"]["content"] or ""
     cleaned = _extract_json_object(_strip_fences(content))
 
     try:
