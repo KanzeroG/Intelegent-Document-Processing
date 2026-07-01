@@ -10,10 +10,6 @@ import StatusBadge from "../components/StatusBadge";
 import { runEval, getEvalStatus, type EvalStatus } from "../api";
 import { formatIDR, DOC_TYPE_LABEL } from "../lib/format";
 
-// Indicative manual-entry cost per document (IDR) for the ROI comparison.
-const MANUAL_COST_PER_DOC = 18000;
-const AUTO_COST_PER_DOC = 1200;
-
 export default function DashboardPage() {
   const { docs } = useDocuments();
   const { role } = useAuth();
@@ -89,8 +85,12 @@ export default function DashboardPage() {
   }));
   const topRules = Object.entries(ruleCounts).sort((a, b) => b[1] - a[1]).slice(0, 4);
 
-  const manualCost = total * MANUAL_COST_PER_DOC;
-  const autoCost = total * AUTO_COST_PER_DOC;
+  // Fraction of documents that need human review, driven by the real eval
+  // (docs not fully correct) when available; otherwise a conservative default.
+  const roiNeedsReview =
+    evalSummary && evalSummary.n
+      ? (evalSummary.n - evalSummary.docs_fully_correct) / evalSummary.n
+      : 0.2;
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -246,17 +246,13 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Efficiency impact + recent activity */}
-      <div className="mt-gutter grid grid-cols-1 gap-gutter lg:grid-cols-3">
-        <Card title="Efficiency Impact (this session)">
-          <CostRow label="Manual processing cost" value={manualCost} cls="bg-status-error" max={manualCost || 1} amount={manualCost} />
-          <CostRow label="Automated cost" value={autoCost} cls="bg-status-success" max={manualCost || 1} amount={autoCost} />
-          <div className="mt-3 rounded-lg bg-status-success/5 p-3 text-body-sm text-status-success">
-            Estimated savings: <span className="font-semibold mono">{formatIDR(manualCost - autoCost)}</span>
-          </div>
-        </Card>
+      {/* Cost-benefit / ROI calculator (deliverable #6) */}
+      <div className="mt-gutter">
+        <ROICard needsReviewFraction={roiNeedsReview} />
+      </div>
 
-        <div className="lg:col-span-2">
+      {/* Recent activity */}
+      <div className="mt-gutter">
           <Card title="Recent Activity">
             {docs.length === 0 ? (
               <p className="text-body-sm text-on-surface-variant">No activity yet.</p>
@@ -286,7 +282,6 @@ export default function DashboardPage() {
             )}
           </Card>
         </div>
-      </div>
     </div>
   );
 }
@@ -310,16 +305,82 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-function CostRow({ label, cls, max, amount }: { label: string; value: number; cls: string; max: number; amount: number }) {
-  return (
+// Cost-benefit / ROI calculator (deliverable #6). Editable assumptions; the
+// "needs review" fraction is driven by the real evaluation when available.
+function ROICard({ needsReviewFraction }: { needsReviewFraction: number }) {
+  const [volume, setVolume] = useState(1000); // docs / month
+  const [manualMin, setManualMin] = useState(6); // minutes to key one doc manually
+  const [rate, setRate] = useState(50000); // reviewer cost, IDR / hour
+  const [reviewMin, setReviewMin] = useState(3); // minutes to review one flagged doc
+  const [implCost, setImplCost] = useState(15000000); // one-time setup, IDR
+
+  const manualCost = volume * (manualMin / 60) * rate;
+  const reviewedDocs = volume * needsReviewFraction;
+  const autoCost = reviewedDocs * (reviewMin / 60) * rate; // only flagged docs need a human
+  const savings = manualCost - autoCost;
+  const savingsPct = manualCost > 0 ? (savings / manualCost) * 100 : 0;
+  const paybackMonths = savings > 0 ? implCost / savings : Infinity;
+  const max = Math.max(manualCost, autoCost, 1);
+
+  const Row = ({ label, amount, cls }: { label: string; amount: number; cls: string }) => (
     <div className="mb-3">
       <div className="flex justify-between text-body-sm text-on-surface-variant">
         <span>{label}</span>
-        <span className="mono">{formatIDR(amount)}</span>
+        <span className="mono">{formatIDR(amount)}/mo</span>
       </div>
       <div className="mt-1 h-2 rounded-full bg-surface-container">
         <div className={`h-2 rounded-full ${cls}`} style={{ width: `${Math.min(100, (amount / max) * 100)}%` }} />
       </div>
     </div>
+  );
+
+  const Input = ({ label, value, set, step = 1 }: { label: string; value: number; set: (n: number) => void; step?: number }) => (
+    <label className="block">
+      <span className="text-label-md text-on-surface-variant">{label}</span>
+      <input
+        type="number"
+        value={value}
+        step={step}
+        onChange={(e) => set(Number(e.target.value) || 0)}
+        className="mt-1 h-9 w-full rounded-lg border border-border-base px-2 text-body-sm mono"
+      />
+    </label>
+  );
+
+  return (
+    <Card title="Cost-Benefit vs. Manual Entry (ROI)">
+      <div className="grid grid-cols-1 gap-gutter md:grid-cols-2">
+        {/* Assumptions */}
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Volume (docs/month)" value={volume} set={setVolume} step={100} />
+          <Input label="Manual min/doc" value={manualMin} set={setManualMin} />
+          <Input label="Reviewer rate (IDR/hr)" value={rate} set={setRate} step={5000} />
+          <Input label="Review min/flagged doc" value={reviewMin} set={setReviewMin} />
+          <Input label="One-time setup (IDR)" value={implCost} set={setImplCost} step={1000000} />
+          <label className="block">
+            <span className="text-label-md text-on-surface-variant">Docs needing review</span>
+            <div className="mt-1 flex h-9 items-center rounded-lg border border-border-base px-2 text-body-sm mono text-text-primary">
+              {(needsReviewFraction * 100).toFixed(0)}%
+            </div>
+          </label>
+        </div>
+
+        {/* Results */}
+        <div>
+          <Row label="Manual processing" amount={manualCost} cls="bg-status-error" />
+          <Row label="Automated (review only)" amount={autoCost} cls="bg-status-success" />
+          <div className="mt-3 rounded-lg bg-status-success/5 p-3">
+            <div className="text-body-sm text-on-surface-variant">Estimated savings</div>
+            <div className="text-headline-md font-semibold text-status-success mono">
+              {formatIDR(savings)}/mo · {formatIDR(savings * 12)}/yr
+            </div>
+            <div className="mt-1 text-body-sm text-on-surface-variant">
+              {savingsPct.toFixed(0)}% lower cost · payback in{" "}
+              {Number.isFinite(paybackMonths) ? `${paybackMonths.toFixed(1)} months` : "—"}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }

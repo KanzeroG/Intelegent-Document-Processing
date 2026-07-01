@@ -43,9 +43,17 @@ cd backend
 ./.venv/bin/python evaluate.py --limit 5   # quick sample
 ./.venv/bin/python evaluate.py --ids DOC-001,DOC-026
 ```
-Prints per-field accuracy + writes `data/eval_results.csv`.
+Prints per-field accuracy + writes `data/eval_results.csv`. Admins can also run
+it from the Dashboard ("Model Accuracy" card) — a background run with live
+progress and per-type results.
 
-Still pending: the cost-benefit business case (#6).
+### Cost-benefit business case (deliverable #6)
+An interactive ROI calculator lives on the Dashboard (manual vs. automated cost,
+savings, payback), with the "needs review" rate driven by the real eval. The
+written case is in [`docs/BUSINESS_CASE.md`](docs/BUSINESS_CASE.md).
+
+All six deliverables are now in place; remaining work is polish (real auth,
+admin config, batch upload).
 
 ## Prerequisites
 
