@@ -9,6 +9,28 @@ import { useDocuments, missingFields } from "../store";
 import type { ExtractedDocument } from "../api";
 import { formatNumber, DOC_TYPE_LABEL } from "../lib/format";
 
+const FIELD_LABEL: Record<string, string> = {
+  doc_number: "Document Number",
+  vendor: "Vendor Name",
+  buyer: "Buyer",
+  doc_date: "Date",
+  currency: "Currency",
+  subtotal: "Subtotal",
+  tax_amount: "Tax (PPN)",
+  total_amount: "Total Amount",
+  line_items: "Line Items",
+};
+
+// Friendly category title for a backend validation issue (matches the Stitch
+// "Calculation Mismatch" / "Required Field" phrasing).
+function ruleTitle(field: string, severity: string): string {
+  const base = field.split("[")[0];
+  if (base === "total_amount" && severity === "error") return "Calculation Mismatch";
+  if (base === "line_items") return severity === "error" ? "Calculation Mismatch" : "Line Items Check";
+  if (severity === "error") return `Required Field — ${FIELD_LABEL[base] ?? base}`;
+  return `${FIELD_LABEL[base] ?? base} Check`;
+}
+
 export default function ReviewPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -64,6 +86,20 @@ export default function ReviewPage() {
   const missingSet = new Set<string>(missingFields(form, rec.docType) as string[]);
   const confCls =
     rec.confidence >= 90 ? "text-status-success" : rec.confidence >= 75 ? "text-status-warning" : "text-status-error";
+
+  // Validation Rules panel = backend issues + a "Missing Information" warning per
+  // empty expected field (deduped against backend issues on the same field).
+  const missingIssues = [...missingSet]
+    .filter((f) => !rec.issues.some((i) => i.field.split("[")[0] === f))
+    .map((f) => ({
+      severity: "warning" as const,
+      title: "Missing Information",
+      message: `${FIELD_LABEL[f] ?? f} is missing from extraction — manual entry required.`,
+    }));
+  const shownIssues = [
+    ...rec.issues.map((i) => ({ severity: i.severity, title: ruleTitle(i.field, i.severity), message: i.message })),
+    ...missingIssues,
+  ];
 
   function save() {
     updateDoc(rec!.id, { data: form! });
@@ -167,11 +203,11 @@ export default function ReviewPage() {
           <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
             <div className="text-label-sm uppercase text-on-surface-variant">Validation Rules</div>
             <div className="mt-3 space-y-2">
-              {rec.issues.length === 0 && (
-                <Rule severity="success" title="All checks passed" detail="No validation issues found." />
+              {shownIssues.length === 0 && (
+                <Rule severity="success" title="All Checks Passed" detail="No validation issues found." />
               )}
-              {rec.issues.map((iss, i) => (
-                <Rule key={i} severity={iss.severity} title={iss.field} detail={iss.message} />
+              {shownIssues.map((iss, i) => (
+                <Rule key={i} severity={iss.severity} title={iss.title} detail={iss.message} />
               ))}
             </div>
           </div>
