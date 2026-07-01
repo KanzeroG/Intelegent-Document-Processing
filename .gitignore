@@ -18,8 +18,9 @@ dist-ssr/
 data/uploads/*
 !data/uploads/.gitkeep
 
-# SQLite cache (runtime)
+# SQLite cache + eval output (runtime)
 data/*.db
+data/eval_results.csv
 
 # OS / editor
 .DS_Store

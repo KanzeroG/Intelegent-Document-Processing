@@ -34,8 +34,18 @@ API: `POST /extract` (extract + persist), `GET /documents`, `GET /documents/{id}
 `GET /documents/{id}/file`, `PATCH /documents/{id}` (save corrections / status;
 re-validates edited data).
 
-Still pending: real CSV/JSON + mock-API export (`export.py` is a stub) and the
-field-level accuracy evaluation vs. `ground_truth.csv`.
+### Accuracy evaluation (deliverable #5)
+Run the extraction over the labelled `Source/` docs and compare to ground truth
+(LM Studio must be running):
+```bash
+cd backend
+./.venv/bin/python evaluate.py             # all 60 docs (~30 min)
+./.venv/bin/python evaluate.py --limit 5   # quick sample
+./.venv/bin/python evaluate.py --ids DOC-001,DOC-026
+```
+Prints per-field accuracy + writes `data/eval_results.csv`.
+
+Still pending: the cost-benefit business case (#6).
 
 ## Prerequisites
 
