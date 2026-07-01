@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from . import db, export
+from . import db, evaluation, export
 from .auth import Role, get_current_role
 from .extraction import ExtractionError, extract_document
 from .loaders import load_document_as_base64_png
@@ -161,6 +161,27 @@ def export_csv(doc_id: str) -> Response:
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{doc_id}.csv"'},
     )
+
+
+def require_admin(role: Role = Depends(get_current_role)) -> Role:
+    """Dependency: only the admin role may proceed (stubbed via X-Role header)."""
+    if role != Role.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin role required.")
+    return role
+
+
+@app.post("/eval/run")
+def eval_run(limit: int | None = None, _: Role = Depends(require_admin)) -> dict:
+    """Start a background accuracy evaluation (admin only). Returns immediately."""
+    if not evaluation.start_run(limit=limit):
+        raise HTTPException(status_code=409, detail="An evaluation is already running.")
+    return {"started": True}
+
+
+@app.get("/eval/status")
+def eval_status() -> dict:
+    """Progress + last saved summary of the accuracy evaluation."""
+    return evaluation.get_status()
 
 
 @app.post("/mock-api/ingest")

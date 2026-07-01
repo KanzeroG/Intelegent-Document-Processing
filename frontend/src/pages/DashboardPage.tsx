@@ -2,9 +2,12 @@
 // the real in-memory document store; the trend chart is illustrative. Mirrors
 // the DocExtract design (deliverables #5/#6 surface here later).
 
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useDocuments } from "../store";
+import toast from "react-hot-toast";
+import { useAuth, useDocuments } from "../store";
 import StatusBadge from "../components/StatusBadge";
+import { runEval, getEvalStatus, type EvalStatus } from "../api";
 import { formatIDR, DOC_TYPE_LABEL } from "../lib/format";
 
 // Indicative manual-entry cost per document (IDR) for the ROI comparison.
@@ -13,6 +16,58 @@ const AUTO_COST_PER_DOC = 1200;
 
 export default function DashboardPage() {
   const { docs } = useDocuments();
+  const { role } = useAuth();
+
+  // Accuracy evaluation (admin): load last summary, poll while a run is active.
+  const [evalStatus, setEvalStatus] = useState<EvalStatus | null>(null);
+  const pollRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const s = await getEvalStatus();
+        if (!alive) return;
+        setEvalStatus(s);
+        if (s.running && pollRef.current === null) {
+          pollRef.current = window.setInterval(tick, 3000);
+        } else if (!s.running && pollRef.current !== null) {
+          window.clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      } catch {
+        /* backend down — ignore */
+      }
+    };
+    void tick();
+    return () => {
+      alive = false;
+      if (pollRef.current !== null) window.clearInterval(pollRef.current);
+    };
+  }, []);
+
+  async function handleRunEval(limit?: number) {
+    try {
+      await runEval(role ?? "user", limit);
+      toast.success("Evaluation started — this runs in the background.");
+      const s = await getEvalStatus();
+      setEvalStatus(s);
+      if (s.running && pollRef.current === null) {
+        pollRef.current = window.setInterval(async () => {
+          const st = await getEvalStatus();
+          setEvalStatus(st);
+          if (!st.running && pollRef.current !== null) {
+            window.clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+        }, 3000);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not start evaluation");
+    }
+  }
+
+  const evalSummary = evalStatus?.summary ?? null;
 
   const total = docs.length;
   const pending = docs.filter((d) => d.status === "in_review" || d.status === "flagged").length;
@@ -52,6 +107,95 @@ export default function DashboardPage() {
         <Metric icon="flag" label="Flagged Issues" value={flagged} tint="text-status-error" />
       </div>
 
+      {/* Model accuracy vs ground truth (evaluation) */}
+      <div className="mt-gutter rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-headline-md text-text-primary">Model Accuracy (vs ground truth)</h3>
+            <p className="text-body-sm text-on-surface-variant">
+              Field-level accuracy over the labelled sample documents.
+            </p>
+          </div>
+          {role === "admin" && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleRunEval(10)}
+                disabled={evalStatus?.running}
+                className="rounded-lg border border-border-base px-3 py-2 text-body-sm font-semibold text-text-primary disabled:opacity-50"
+              >
+                Sample (10)
+              </button>
+              <button
+                onClick={() => handleRunEval()}
+                disabled={evalStatus?.running}
+                className="rounded-lg bg-primary px-3 py-2 text-body-sm font-semibold text-white hover:bg-primary-container disabled:opacity-50"
+              >
+                Run full (60)
+              </button>
+            </div>
+          )}
+        </div>
+
+        {evalStatus?.running && (
+          <div className="mt-4">
+            <div className="flex justify-between text-body-sm text-on-surface-variant">
+              <span>Evaluating…</span>
+              <span className="mono">{evalStatus.done}/{evalStatus.total}</span>
+            </div>
+            <div className="mt-1 h-2 rounded-full bg-surface-container">
+              <div
+                className="h-2 rounded-full bg-secondary transition-all"
+                style={{ width: `${evalStatus.total ? (evalStatus.done / evalStatus.total) * 100 : 0}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {evalStatus?.error && (
+          <p className="mt-3 text-body-sm text-status-error">Last run failed: {evalStatus.error}</p>
+        )}
+
+        {evalSummary ? (
+          <div className="mt-4 grid grid-cols-1 gap-gutter md:grid-cols-3">
+            <div>
+              <div className="flex items-end gap-2">
+                <span className="text-display text-text-primary">{evalSummary.overall}%</span>
+                <span className="mb-2 text-body-sm text-on-surface-variant">overall</span>
+              </div>
+              <p className="text-body-sm text-on-surface-variant">
+                {evalSummary.docs_fully_correct}/{evalSummary.n} docs fully correct · {evalSummary.ran_at}
+              </p>
+            </div>
+            <div className="md:col-span-2">
+              <div className="mb-2 text-label-sm uppercase text-on-surface-variant">By document type</div>
+              <div className="space-y-2">
+                {Object.entries(evalSummary.by_type).map(([t, v]) => (
+                  <div key={t}>
+                    <div className="flex justify-between text-body-sm text-on-surface-variant">
+                      <span>{DOC_TYPE_LABEL[t] ?? t}</span>
+                      <span className="mono">{v.accuracy}% ({v.docs} docs)</span>
+                    </div>
+                    <div className="mt-1 h-2 rounded-full bg-surface-container">
+                      <div
+                        className="h-2 rounded-full bg-status-success"
+                        style={{ width: `${v.accuracy}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          !evalStatus?.running && (
+            <p className="mt-4 text-body-sm text-on-surface-variant">
+              No evaluation yet.{" "}
+              {role === "admin" ? "Click “Run full (60)” to score the sample docs." : "Ask an admin to run it."}
+            </p>
+          )
+        )}
+      </div>
+
       <div className="mt-gutter grid grid-cols-1 gap-gutter lg:grid-cols-3">
         {/* Docs by type */}
         <Card title="Docs by Type">
@@ -70,14 +214,19 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        {/* Accuracy + issues by rule */}
+        {/* Accuracy — real eval overall if available, else session confidence */}
         <Card title="Accuracy Score">
           <div className="flex items-end gap-2">
-            <span className="text-display text-text-primary">{accuracy}%</span>
-            <span className="mb-2 text-body-sm text-on-surface-variant">avg confidence</span>
+            <span className="text-display text-text-primary">{evalSummary ? evalSummary.overall : accuracy}%</span>
+            <span className="mb-2 text-body-sm text-on-surface-variant">
+              {evalSummary ? "vs ground truth" : "avg confidence"}
+            </span>
           </div>
           <div className="mt-3 h-2 rounded-full bg-surface-container">
-            <div className="h-2 rounded-full bg-status-success" style={{ width: `${accuracy}%` }} />
+            <div
+              className="h-2 rounded-full bg-status-success"
+              style={{ width: `${evalSummary ? evalSummary.overall : accuracy}%` }}
+            />
           </div>
         </Card>
 

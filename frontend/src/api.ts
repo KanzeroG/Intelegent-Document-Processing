@@ -95,6 +95,37 @@ export async function getDocument(id: string): Promise<DocumentRecord> {
   return unwrap<DocumentRecord>(await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(id)}`));
 }
 
+// ---- Accuracy evaluation (admin) -------------------------------------------
+
+export interface EvalSummary {
+  ran_at: string;
+  n: number;
+  fields: Record<string, { correct: number; total: number; accuracy: number | null }>;
+  by_type: Record<string, { correct: number; total: number; docs: number; accuracy: number }>;
+  overall: number;
+  docs_fully_correct: number;
+}
+
+export interface EvalStatus {
+  running: boolean;
+  done: number;
+  total: number;
+  error: string | null;
+  summary: EvalSummary | null;
+}
+
+export async function runEval(role: Role, limit?: number): Promise<{ started: boolean }> {
+  const q = limit ? `?limit=${limit}` : "";
+  return unwrap(await fetch(`${API_BASE_URL}/eval/run${q}`, {
+    method: "POST",
+    headers: { "X-Role": role },
+  }));
+}
+
+export async function getEvalStatus(): Promise<EvalStatus> {
+  return unwrap(await fetch(`${API_BASE_URL}/eval/status`));
+}
+
 // Downloadable export URLs (attachment) served by the backend.
 export function exportJsonUrl(id: string): string {
   return `${API_BASE_URL}/documents/${encodeURIComponent(id)}/export.json`;
