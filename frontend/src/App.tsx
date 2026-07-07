@@ -15,6 +15,7 @@ import ReviewPage from "./pages/ReviewPage";
 import DashboardPage from "./pages/DashboardPage";
 import ChatPage from "./pages/ChatPage";
 import AuditPage from "./pages/AuditPage";
+import PerformancePage from "./pages/PerformancePage";
 
 export default function App() {
   const { role } = useAuth();
@@ -57,6 +58,14 @@ export default function App() {
           element={
             <RequireRole allow={["admin"]}>
               <AuditPage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/performance"
+          element={
+            <RequireRole allow={["admin"]}>
+              <PerformancePage />
             </RequireRole>
           }
         />
