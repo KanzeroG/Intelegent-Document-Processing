@@ -23,8 +23,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from . import db, evaluation, export
-from .auth import Role, get_current_role
+from . import db, evaluation, export, rag
+from .auth import AuthUser, Role, authenticate, create_token, get_current_role, get_current_user
 from .extraction import ExtractionError, extract_document
 from .loaders import load_document_as_base64_png
 from .schemas import Document, DocumentType, missing_fields
@@ -76,6 +76,21 @@ def _record(doc: Document, issues: list[ValidationIssue]) -> dict:
     }
 
 
+# Token-authenticated `user` callers only see their own documents; staff/admin
+# (and tokenless callers, e.g. plain <a href> downloads) see everything.
+def _is_scoped_user(user: AuthUser) -> bool:
+    return user.email is not None and user.role == Role.USER
+
+
+def _get_visible_document(doc_id: str, user: AuthUser) -> dict:
+    """Fetch a record, hiding other uploaders' docs from `user`-role callers.
+    404 (not 403) so document ids don't leak existence."""
+    rec = db.get_document(doc_id)
+    if not rec or (_is_scoped_user(user) and rec.get("uploaded_by") != user.email):
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return rec
+
+
 # --- routes ------------------------------------------------------------------
 
 @app.get("/health")
@@ -83,11 +98,36 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/auth/login")
+def auth_login(body: LoginBody) -> dict:
+    """Check demo credentials and issue a signed session token."""
+    user = authenticate(body.email, body.password)
+    if not user:
+        db.add_audit(actor=body.email.strip().lower(), role=None, action="login_failed",
+                     detail="Invalid credentials.")
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    db.add_audit(actor=user.email, role=user.role.value, action="login", detail="Signed in.")
+    return {"token": create_token(user), "role": user.role.value, "name": user.name, "email": user.email}
+
+
+@app.get("/auth/me")
+def auth_me(user: AuthUser = Depends(get_current_user)) -> dict:
+    """Validate a persisted session (the SPA calls this after a page refresh)."""
+    if user.email is None:
+        raise HTTPException(status_code=401, detail="Not signed in.")
+    return {"email": user.email, "role": user.role.value, "name": user.name}
+
+
 @app.post("/extract")
 async def extract(
     file: UploadFile = File(...),
     doc_type: DocumentType = Form(DocumentType.INVOICE),
-    role: Role = Depends(get_current_role),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
     """Load an uploaded document, extract + validate, persist, and return the record."""
     raw = await file.read()
@@ -110,26 +150,29 @@ async def extract(
     rec["filename"] = file.filename
     rec["mime"] = file.content_type or "application/octet-stream"
     rec["uploaded_at"] = date.today().isoformat()
+    rec["uploaded_by"] = user.email  # None for tokenless (X-Role fallback) callers
 
     db.insert_document(rec, raw)  # cache the extraction + original file
+    db.add_audit(
+        actor=user.email, role=user.role.value, action="upload", doc_id=rec["id"],
+        detail=f"Extracted '{file.filename}' as {doc_type.value} -> {rec['status']}.",
+    )
     return {k: v for k, v in rec.items() if k != "file"}
 
 
 @app.get("/documents")
-def list_documents() -> list[dict]:
-    return db.list_documents()
+def list_documents(user: AuthUser = Depends(get_current_user)) -> list[dict]:
+    return db.list_documents(uploaded_by=user.email if _is_scoped_user(user) else None)
 
 
 @app.get("/documents/{doc_id}")
-def get_document(doc_id: str) -> dict:
-    rec = db.get_document(doc_id)
-    if not rec:
-        raise HTTPException(status_code=404, detail="Document not found.")
-    return rec
+def get_document(doc_id: str, user: AuthUser = Depends(get_current_user)) -> dict:
+    return _get_visible_document(doc_id, user)
 
 
 @app.get("/documents/{doc_id}/file")
-def get_document_file(doc_id: str) -> Response:
+def get_document_file(doc_id: str, user: AuthUser = Depends(get_current_user)) -> Response:
+    _get_visible_document(doc_id, user)
     got = db.get_file(doc_id)
     if not got:
         raise HTTPException(status_code=404, detail="File not found.")
@@ -140,10 +183,10 @@ def get_document_file(doc_id: str) -> Response:
 
 
 @app.get("/documents/{doc_id}/export.json")
-def export_json(doc_id: str) -> Response:
-    rec = db.get_document(doc_id)
-    if not rec:
-        raise HTTPException(status_code=404, detail="Document not found.")
+def export_json(doc_id: str, user: AuthUser = Depends(get_current_user)) -> Response:
+    rec = _get_visible_document(doc_id, user)
+    db.add_audit(actor=user.email, role=user.role.value, action="export",
+                 doc_id=doc_id, detail="Exported JSON.")
     return Response(
         content=export.to_json(rec),
         media_type="application/json",
@@ -152,10 +195,10 @@ def export_json(doc_id: str) -> Response:
 
 
 @app.get("/documents/{doc_id}/export.csv")
-def export_csv(doc_id: str) -> Response:
-    rec = db.get_document(doc_id)
-    if not rec:
-        raise HTTPException(status_code=404, detail="Document not found.")
+def export_csv(doc_id: str, user: AuthUser = Depends(get_current_user)) -> Response:
+    rec = _get_visible_document(doc_id, user)
+    db.add_audit(actor=user.email, role=user.role.value, action="export",
+                 doc_id=doc_id, detail="Exported CSV.")
     return Response(
         content=export.to_csv(rec),
         media_type="text/csv",
@@ -171,10 +214,16 @@ def require_admin(role: Role = Depends(get_current_role)) -> Role:
 
 
 @app.post("/eval/run")
-def eval_run(limit: int | None = None, _: Role = Depends(require_admin)) -> dict:
+def eval_run(
+    limit: int | None = None,
+    user: AuthUser = Depends(get_current_user),
+    _: Role = Depends(require_admin),
+) -> dict:
     """Start a background accuracy evaluation (admin only). Returns immediately."""
     if not evaluation.start_run(limit=limit):
         raise HTTPException(status_code=409, detail="An evaluation is already running.")
+    db.add_audit(actor=user.email, role=user.role.value, action="eval_run",
+                 detail=f"Accuracy evaluation started (limit={limit or 'all'}).")
     return {"started": True}
 
 
@@ -184,13 +233,21 @@ def eval_status() -> dict:
     return evaluation.get_status()
 
 
+@app.get("/audit")
+def audit_log(limit: int = 200, _: Role = Depends(require_admin)) -> list[dict]:
+    """The audit trail (admin only): who did what, newest first."""
+    return db.list_audit(limit=limit)
+
+
 @app.get("/exports/documents.csv")
-def export_all_csv(status: str = "approved") -> Response:
+def export_all_csv(status: str = "approved", user: AuthUser = Depends(get_current_user)) -> Response:
     """Bulk CSV of documents, filtered by status (default: approved). Use
     status=all to export everything. One row per doc, ground_truth columns."""
     records = db.list_documents()
     if status != "all":
         records = [r for r in records if r.get("status") == status]
+    db.add_audit(actor=user.email, role=user.role.value, action="export",
+                 detail=f"Bulk CSV export (status={status}, {len(records)} docs).")
     filename = f"documents_{status}.csv"
     return Response(
         content=export.to_csv_many(records),
@@ -218,7 +275,11 @@ class PatchBody(BaseModel):
 
 
 @app.patch("/documents/{doc_id}")
-def patch_document(doc_id: str, body: PatchBody) -> dict:
+def patch_document(doc_id: str, body: PatchBody, user: AuthUser = Depends(get_current_user)) -> dict:
+    # Review is a staff/admin responsibility. Only token-authenticated `user`
+    # callers are rejected — tokenless callers keep the original open behavior.
+    if _is_scoped_user(user):
+        raise HTTPException(status_code=403, detail="Reviewer (staff/admin) role required.")
     existing = db.get_document(doc_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -241,4 +302,63 @@ def patch_document(doc_id: str, body: PatchBody) -> dict:
     elif body.status is not None:
         db.update_document(doc_id, status=body.status)
 
+    # Audit trail: name the review action the way the UI does.
+    old_status = existing.get("status")
+    if body.status == "approved":
+        action, detail = "approve", f"Approved (was {old_status}); exported to downstream system."
+    elif body.status == "rejected":
+        action, detail = "reject", f"Rejected (was {old_status})."
+    elif body.status is not None:
+        action, detail = "status_change", f"Status: {old_status} -> {body.status}."
+    else:
+        action, detail = "update", "Corrections saved; validation re-run."
+    db.add_audit(actor=user.email, role=user.role.value, action=action,
+                 doc_id=doc_id, detail=detail)
+
     return db.get_document(doc_id)  # type: ignore[return-value]
+
+
+# --- RAG chat (bonus) ---------------------------------------------------------
+
+class ChatRequest(BaseModel):
+    question: str
+    doc_id: str | None = None
+
+
+class ChatCitation(BaseModel):
+    doc_id: str
+    doc_number: str | None = None
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    citations: list[ChatCitation]
+
+
+@app.post("/chat")
+def chat(body: ChatRequest, user: AuthUser = Depends(get_current_user)) -> ChatResponse:
+    """Answer a question grounded in the caller's extracted documents.
+
+    With doc_id: that document's full JSON is the context. Without: the top
+    embedding matches across all visible documents are. `user`-role callers are
+    scoped to their own uploads, same as GET /documents.
+    """
+    question = body.question.strip()
+    if not question:
+        raise HTTPException(status_code=400, detail="Question is empty.")
+
+    visible = db.list_documents(uploaded_by=user.email if _is_scoped_user(user) else None)
+    target = None
+    if body.doc_id:
+        target = next((r for r in visible if r["id"] == body.doc_id), None)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+    try:
+        answer, citations = rag.answer_question(question, visible, target)
+    except rag.ChatError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return ChatResponse(
+        answer=answer,
+        citations=[ChatCitation(**c) for c in citations],
+    )

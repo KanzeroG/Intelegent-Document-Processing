@@ -1,10 +1,12 @@
-// App-wide state: a stubbed auth/role context and an API-backed store of
-// extracted documents. Documents are persisted server-side (SQLite); this store
-// loads them on mount and keeps a local copy in sync as records are added or
-// edited, so a page refresh no longer loses work or re-runs the model.
+// App-wide state: the auth session (backed by /auth/login + localStorage) and
+// an API-backed store of extracted documents. Documents are persisted
+// server-side (SQLite); this store loads them whenever the session changes and
+// keeps a local copy in sync as records are added or edited, so a page refresh
+// no longer loses work or re-runs the model.
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -20,14 +22,23 @@ import {
   type DocStatus,
   type DocType,
 } from "./api";
+import {
+  clearAuth,
+  loadAuth,
+  saveAuth,
+  UNAUTHORIZED_EVENT,
+  type StoredAuth,
+} from "./lib/auth";
 
 export type { DocStatus } from "./api";
+export type { StoredAuth } from "./lib/auth";
 
-// ---- Auth (stubbed) ---------------------------------------------------------
+// ---- Auth ---------------------------------------------------------------------
 
 interface AuthState {
+  user: StoredAuth | null;
   role: Role | null;
-  signIn: (role: Role) => void;
+  signIn: (user: StoredAuth) => void;
   signOut: () => void;
 }
 
@@ -49,6 +60,7 @@ export interface DocRecord {
   fileName: string;
   docType: DocType;
   uploadedAt: string;
+  uploadedBy: string | null;
   status: DocStatus;
   data: ExtractedDocument;
   issues: DocumentRecord["issues"];
@@ -63,6 +75,7 @@ export function toRecord(r: DocumentRecord): DocRecord {
     fileName: r.filename ?? "document",
     docType: r.doc_type,
     uploadedAt: r.uploaded_at,
+    uploadedBy: r.uploaded_by,
     status: r.status,
     data: r.data,
     issues: r.issues,
@@ -74,6 +87,8 @@ export function toRecord(r: DocumentRecord): DocRecord {
 interface DocStore {
   docs: DocRecord[];
   loading: boolean;
+  loadError: string | null;
+  dismissError: () => void;
   reload: () => Promise<void>;
   addRecord: (r: DocumentRecord) => void;
   replaceRecord: (r: DocumentRecord) => void;
@@ -104,42 +119,72 @@ export function missingFields(data: ExtractedDocument, docType: DocType): (keyof
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<Role | null>(null);
+  // Session survives refresh via localStorage.
+  const [user, setUser] = useState<StoredAuth | null>(() => loadAuth());
   const [docs, setDocs] = useState<DocRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  async function reload() {
+  const reload = useCallback(async () => {
     setLoading(true);
     try {
       setDocs((await listDocuments()).map(toRecord));
-    } catch {
-      /* backend not up yet — leave docs as-is */
+      setLoadError(null);
+    } catch (e) {
+      // Surfaced as a dismissible banner in the app shell (previously this was
+      // swallowed silently and the UI showed a misleading "no documents").
+      setLoadError(e instanceof Error ? e.message : "Could not reach the backend.");
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  // Load persisted documents once on mount.
+  const signIn = useCallback((u: StoredAuth) => {
+    saveAuth(u);
+    setUser(u);
+  }, []);
+
+  const signOut = useCallback(() => {
+    clearAuth();
+    setUser(null);
+  }, []);
+
+  // (Re)load documents whenever the session changes — the backend filters the
+  // list per role, so a fresh login must refetch. Signed out -> empty store.
   useEffect(() => {
+    if (!user) {
+      setDocs([]);
+      setLoadError(null);
+      return;
+    }
     void reload();
+  }, [user, reload]);
+
+  // The API client saw a 401 — the token is invalid/expired, so sign out.
+  useEffect(() => {
+    const onUnauthorized = () => setUser(null);
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, []);
 
   const auth = useMemo<AuthState>(
-    () => ({ role, signIn: setRole, signOut: () => setRole(null) }),
-    [role],
+    () => ({ user, role: user?.role ?? null, signIn, signOut }),
+    [user, signIn, signOut],
   );
 
   const store = useMemo<DocStore>(
     () => ({
       docs,
       loading,
+      loadError,
+      dismissError: () => setLoadError(null),
       reload,
       addRecord: (r) => setDocs((prev) => [toRecord(r), ...prev]),
       replaceRecord: (r) =>
         setDocs((prev) => prev.map((d) => (d.id === r.id ? toRecord(r) : d))),
       getDoc: (id) => docs.find((d) => d.id === id),
     }),
-    [docs, loading],
+    [docs, loading, loadError, reload],
   );
 
   return (

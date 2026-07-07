@@ -6,10 +6,10 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
-import { extractDocument, exportAllUrl, type DocType } from "../api";
+import { extractDocument, exportAllUrl, downloadFile, type DocType } from "../api";
 import { useAuth, useDocuments } from "../store";
 import StatusBadge from "../components/StatusBadge";
-import { DOC_TYPE_LABEL } from "../lib/format";
+import { DOC_TYPE_LABEL, docLabel, formatDateTime } from "../lib/format";
 
 const TYPES: DocType[] = ["invoice", "purchase_order", "receipt"];
 
@@ -24,7 +24,7 @@ const newKey = () =>
 
 export default function UploadPage() {
   const { role } = useAuth();
-  const { docs, addRecord } = useDocuments();
+  const { docs, addRecord, loading: docsLoading, loadError } = useDocuments();
   const navigate = useNavigate();
 
   const [defaultType, setDefaultType] = useState<DocType>("invoice");
@@ -34,6 +34,8 @@ export default function UploadPage() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loading = progress !== null;
+  // Staff/admin see everyone's documents, so show who uploaded each one.
+  const showUploader = role !== "user";
 
   function addFiles(list: FileList | null) {
     if (!list) return;
@@ -48,7 +50,7 @@ export default function UploadPage() {
       const s = staged[i];
       setProgress({ done: i, total: staged.length, current: s.file.name });
       try {
-        addRecord(await extractDocument(s.file, s.docType, role ?? "user"));
+        addRecord(await extractDocument(s.file, s.docType));
         ok += 1;
       } catch (e) {
         toast.error(`${s.file.name}: ${e instanceof Error ? e.message : "failed"}`);
@@ -216,61 +218,81 @@ export default function UploadPage() {
 
       {/* My Documents */}
       <div className="mt-8 rounded-lg border border-border-base bg-surface-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-border-base px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-base px-5 py-4">
           <h3 className="text-headline-md text-text-primary">My Documents</h3>
           <div className="flex items-center gap-4">
-            {docs.some((d) => d.status === "approved") && (
-              <a
-                href={exportAllUrl("approved")}
-                download="documents_approved.csv"
+            {/* Bulk export is an admin responsibility (staff export per-doc on Review).
+                Authenticated download so the export is attributed in the audit log. */}
+            {role === "admin" && docs.some((d) => d.status === "approved") && (
+              <button
+                onClick={() =>
+                  downloadFile(exportAllUrl("approved"), "documents_approved.csv").catch((e) =>
+                    toast.error(e instanceof Error ? e.message : "Download failed"),
+                  )
+                }
                 className="flex items-center gap-1 text-body-sm font-semibold text-secondary hover:underline"
               >
                 <span className="material-symbols-outlined text-base">download</span>
                 Export approved (CSV)
-              </a>
+              </button>
             )}
             <span className="text-body-sm text-on-surface-variant">{docs.length} document(s)</span>
           </div>
         </div>
 
-        {docs.length === 0 ? (
+        {docsLoading && docs.length === 0 ? (
+          // Initial load: skeleton rows instead of a misleading empty state.
+          <div className="space-y-3 px-5 py-6" aria-label="Loading documents">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="h-9 animate-pulse rounded-lg bg-surface-container" />
+            ))}
+          </div>
+        ) : docs.length === 0 ? (
           <div className="px-5 py-12 text-center text-body-md text-on-surface-variant">
-            No documents yet — upload one above to get started.
+            {loadError
+              ? "Couldn't load documents — check the backend connection, then Retry from the banner above."
+              : "No documents yet — upload one above to get started."}
           </div>
         ) : (
-          <table className="w-full text-left">
-            <thead>
-              <tr className="text-label-sm uppercase text-on-surface-variant">
-                <th className="px-5 py-3">Doc ID</th>
-                <th className="px-5 py-3">File Name</th>
-                <th className="px-5 py-3">Type</th>
-                <th className="px-5 py-3">Uploaded</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="text-body-md">
-              {docs.map((d, i) => (
-                <tr key={d.id + i} className={i % 2 ? "bg-surface-container-low/40" : ""}>
-                  <td className="px-5 py-3 font-semibold text-secondary mono">{d.doc_number ?? d.id.slice(0, 8)}</td>
-                  <td className="px-5 py-3 text-text-primary">{d.fileName}</td>
-                  <td className="px-5 py-3 text-on-surface-variant">{DOC_TYPE_LABEL[d.docType]}</td>
-                  <td className="px-5 py-3 text-on-surface-variant">{d.uploadedAt}</td>
-                  <td className="px-5 py-3">
-                    <StatusBadge status={d.status} />
-                  </td>
-                  <td className="px-5 py-3 text-right">
-                    <button
-                      onClick={() => navigate(`/review/${encodeURIComponent(d.id)}`)}
-                      className="font-semibold text-secondary hover:underline"
-                    >
-                      View
-                    </button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className={`w-full ${showUploader ? "min-w-[840px]" : "min-w-[720px]"} text-left`}>
+              <thead>
+                <tr className="text-label-sm uppercase text-on-surface-variant">
+                  <th className="px-5 py-3">Doc ID</th>
+                  <th className="px-5 py-3">File Name</th>
+                  <th className="px-5 py-3">Type</th>
+                  <th className="px-5 py-3">Uploaded</th>
+                  {showUploader && <th className="px-5 py-3">Uploaded By</th>}
+                  <th className="px-5 py-3">Status</th>
+                  <th className="px-5 py-3 text-right">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="text-body-md">
+                {docs.map((d, i) => (
+                  <tr key={d.id} className={i % 2 ? "bg-surface-container-low/40" : ""}>
+                    <td className="px-5 py-3 font-semibold text-secondary mono">{docLabel(d)}</td>
+                    <td className="max-w-[260px] truncate px-5 py-3 text-text-primary">{d.fileName}</td>
+                    <td className="px-5 py-3 text-on-surface-variant">{DOC_TYPE_LABEL[d.docType]}</td>
+                    <td className="whitespace-nowrap px-5 py-3 text-on-surface-variant">{formatDateTime(d.uploadedAt)}</td>
+                    {showUploader && (
+                      <td className="whitespace-nowrap px-5 py-3 text-on-surface-variant">{d.uploadedBy ?? "—"}</td>
+                    )}
+                    <td className="px-5 py-3">
+                      <StatusBadge status={d.status} />
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <button
+                        onClick={() => navigate(`/review/${encodeURIComponent(d.id)}`)}
+                        className="font-semibold text-secondary hover:underline"
+                      >
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </div>

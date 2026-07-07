@@ -1,63 +1,59 @@
 // Monitoring dashboard. Metric cards and the activity table are derived from
-// the real in-memory document store; the trend chart is illustrative. Mirrors
-// the DocExtract design (deliverables #5/#6 surface here later).
+// the document store; the "Model Accuracy" section shows the ground-truth
+// evaluation (deliverable #5) and the ROI calculator the business case
+// (deliverable #6, admin-only). Avg extraction confidence is a session
+// heuristic and is labelled as such — it is NOT the same number as accuracy.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth, useDocuments } from "../store";
 import StatusBadge from "../components/StatusBadge";
 import { runEval, getEvalStatus, type EvalStatus } from "../api";
-import { formatIDR, DOC_TYPE_LABEL } from "../lib/format";
+import { formatIDR, formatDateTime, docLabel, DOC_TYPE_LABEL } from "../lib/format";
 
 export default function DashboardPage() {
   const { docs } = useDocuments();
   const { role } = useAuth();
 
-  // Accuracy evaluation (admin): load last summary, poll while a run is active.
+  // Accuracy evaluation: one snapshot on mount…
   const [evalStatus, setEvalStatus] = useState<EvalStatus | null>(null);
-  const pollRef = useRef<number | null>(null);
-
   useEffect(() => {
     let alive = true;
-    const tick = async () => {
-      try {
-        const s = await getEvalStatus();
-        if (!alive) return;
-        setEvalStatus(s);
-        if (s.running && pollRef.current === null) {
-          pollRef.current = window.setInterval(tick, 3000);
-        } else if (!s.running && pollRef.current !== null) {
-          window.clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
-      } catch {
-        /* backend down — ignore */
-      }
-    };
-    void tick();
+    getEvalStatus()
+      .then((s) => {
+        if (alive) setEvalStatus(s);
+      })
+      .catch(() => {
+        /* backend down — the shell banner covers it */
+      });
     return () => {
       alive = false;
-      if (pollRef.current !== null) window.clearInterval(pollRef.current);
     };
   }, []);
 
+  // …then a single polling mechanism: the interval exists exactly while a run
+  // is active. Covers eval-already-running-on-mount, completion, unmount, and
+  // StrictMode double-invoke — and cannot double-poll (this is the only
+  // setInterval on the page).
+  const evalRunning = evalStatus?.running ?? false;
+  useEffect(() => {
+    if (!evalRunning) return;
+    const id = window.setInterval(() => {
+      getEvalStatus()
+        .then(setEvalStatus)
+        .catch(() => {
+          /* transient failure — keep the last state and try again next tick */
+        });
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [evalRunning]);
+
   async function handleRunEval(limit?: number) {
     try {
-      await runEval(role ?? "user", limit);
+      await runEval(limit);
       toast.success("Evaluation started — this runs in the background.");
-      const s = await getEvalStatus();
-      setEvalStatus(s);
-      if (s.running && pollRef.current === null) {
-        pollRef.current = window.setInterval(async () => {
-          const st = await getEvalStatus();
-          setEvalStatus(st);
-          if (!st.running && pollRef.current !== null) {
-            window.clearInterval(pollRef.current);
-            pollRef.current = null;
-          }
-        }, 3000);
-      }
+      setEvalStatus(await getEvalStatus()); // flips running -> the effect polls
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not start evaluation");
     }
@@ -69,7 +65,7 @@ export default function DashboardPage() {
   const pending = docs.filter((d) => d.status === "in_review" || d.status === "flagged").length;
   const approved = docs.filter((d) => d.status === "approved").length;
   const flagged = docs.filter((d) => d.status === "flagged").length;
-  const accuracy = total ? Math.round(docs.reduce((a, d) => a + d.confidence, 0) / total) : 0;
+  const avgConfidence = total ? Math.round(docs.reduce((a, d) => a + d.confidence, 0) / total) : 0;
 
   const byType = (["invoice", "purchase_order", "receipt"] as const).map((t) => ({
     type: t,
@@ -107,9 +103,9 @@ export default function DashboardPage() {
         <Metric icon="flag" label="Flagged Issues" value={flagged} tint="text-status-error" />
       </div>
 
-      {/* Model accuracy vs ground truth (evaluation) */}
+      {/* Model accuracy vs ground truth (evaluation — deliverable #5) */}
       <div className="mt-gutter rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-headline-md text-text-primary">Model Accuracy (vs ground truth)</h3>
             <p className="text-body-sm text-on-surface-variant">
@@ -120,14 +116,14 @@ export default function DashboardPage() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleRunEval(10)}
-                disabled={evalStatus?.running}
+                disabled={evalRunning}
                 className="rounded-lg border border-border-base px-3 py-2 text-body-sm font-semibold text-text-primary disabled:opacity-50"
               >
                 Sample (10)
               </button>
               <button
                 onClick={() => handleRunEval()}
-                disabled={evalStatus?.running}
+                disabled={evalRunning}
                 className="rounded-lg bg-primary px-3 py-2 text-body-sm font-semibold text-white hover:bg-primary-container disabled:opacity-50"
               >
                 Run full (60)
@@ -136,16 +132,18 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {evalStatus?.running && (
+        {evalRunning && (
           <div className="mt-4">
             <div className="flex justify-between text-body-sm text-on-surface-variant">
               <span>Evaluating…</span>
-              <span className="mono">{evalStatus.done}/{evalStatus.total}</span>
+              <span className="mono">{evalStatus?.done}/{evalStatus?.total}</span>
             </div>
             <div className="mt-1 h-2 rounded-full bg-surface-container">
               <div
                 className="h-2 rounded-full bg-secondary transition-all"
-                style={{ width: `${evalStatus.total ? (evalStatus.done / evalStatus.total) * 100 : 0}%` }}
+                style={{
+                  width: `${evalStatus?.total ? ((evalStatus.done ?? 0) / evalStatus.total) * 100 : 0}%`,
+                }}
               />
             </div>
           </div>
@@ -163,10 +161,13 @@ export default function DashboardPage() {
                 <span className="mb-2 text-body-sm text-on-surface-variant">overall</span>
               </div>
               <p className="text-body-sm text-on-surface-variant">
-                {evalSummary.docs_fully_correct}/{evalSummary.n} docs fully correct · {evalSummary.ran_at}
+                {evalSummary.docs_fully_correct}/{evalSummary.n} docs fully correct
+              </p>
+              <p className="text-body-sm text-on-surface-variant">
+                Last run: {formatDateTime(evalSummary.ran_at)}
               </p>
             </div>
-            <div className="md:col-span-2">
+            <div>
               <div className="mb-2 text-label-sm uppercase text-on-surface-variant">By document type</div>
               <div className="space-y-2">
                 {Object.entries(evalSummary.by_type).map(([t, v]) => (
@@ -185,9 +186,23 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
+            <div>
+              <div className="mb-2 text-label-sm uppercase text-on-surface-variant">By field</div>
+              <ul className="space-y-1 text-body-sm">
+                {Object.entries(evalSummary.fields).map(([f, v]) => (
+                  <li key={f} className="flex items-center justify-between gap-2">
+                    <span className="truncate text-on-surface-variant">{f}</span>
+                    <span className="mono shrink-0">
+                      {v.accuracy === null ? "n/a" : `${v.accuracy}%`}{" "}
+                      <span className="text-on-surface-variant">({v.correct}/{v.total})</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         ) : (
-          !evalStatus?.running && (
+          !evalRunning && (
             <p className="mt-4 text-body-sm text-on-surface-variant">
               No evaluation yet.{" "}
               {role === "admin" ? "Click “Run full (60)” to score the sample docs." : "Ask an admin to run it."}
@@ -214,20 +229,19 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        {/* Accuracy — real eval overall if available, else session confidence */}
-        <Card title="Accuracy Score">
+        {/* Session confidence — a heuristic, deliberately NOT called "accuracy"
+            (ground-truth accuracy lives in the eval section above). */}
+        <Card title="Avg Extraction Confidence">
           <div className="flex items-end gap-2">
-            <span className="text-display text-text-primary">{evalSummary ? evalSummary.overall : accuracy}%</span>
-            <span className="mb-2 text-body-sm text-on-surface-variant">
-              {evalSummary ? "vs ground truth" : "avg confidence"}
-            </span>
+            <span className="text-display text-text-primary">{avgConfidence}%</span>
+            <span className="mb-2 text-body-sm text-on-surface-variant">this session</span>
           </div>
           <div className="mt-3 h-2 rounded-full bg-surface-container">
-            <div
-              className="h-2 rounded-full bg-status-success"
-              style={{ width: `${evalSummary ? evalSummary.overall : accuracy}%` }}
-            />
+            <div className="h-2 rounded-full bg-secondary" style={{ width: `${avgConfidence}%` }} />
           </div>
+          <p className="mt-2 text-body-sm text-on-surface-variant">
+            Heuristic from validation issues — for measured accuracy see “Model Accuracy” above.
+          </p>
         </Card>
 
         <Card title="Issues by Rule">
@@ -246,42 +260,49 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Cost-benefit / ROI calculator (deliverable #6) */}
-      <div className="mt-gutter">
-        <ROICard needsReviewFraction={roiNeedsReview} />
-      </div>
+      {/* Cost-benefit / ROI calculator (deliverable #6) — the business case is
+          an admin responsibility. */}
+      {role === "admin" && (
+        <div className="mt-gutter">
+          <ROICard needsReviewFraction={roiNeedsReview} />
+        </div>
+      )}
 
       {/* Recent activity */}
       <div className="mt-gutter">
-          <Card title="Recent Activity">
-            {docs.length === 0 ? (
-              <p className="text-body-sm text-on-surface-variant">No activity yet.</p>
-            ) : (
-              <table className="w-full text-left text-body-sm">
+        <Card title="Recent Activity">
+          {docs.length === 0 ? (
+            <p className="text-body-sm text-on-surface-variant">No activity yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[480px] text-left text-body-sm">
                 <thead>
                   <tr className="text-label-sm uppercase text-on-surface-variant">
                     <th className="py-2">Doc ID</th>
                     <th className="py-2">Type</th>
+                    <th className="py-2">Uploaded</th>
                     <th className="py-2">Status</th>
                     <th className="py-2 text-right">Total</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {docs.slice(0, 6).map((d, i) => (
-                    <tr key={d.id + i} className="border-t border-border-base">
+                  {docs.slice(0, 6).map((d) => (
+                    <tr key={d.id} className="border-t border-border-base">
                       <td className="py-2 font-semibold text-secondary mono">
-                        <Link to={`/review/${encodeURIComponent(d.id)}`}>{d.id}</Link>
+                        <Link to={`/review/${encodeURIComponent(d.id)}`}>{docLabel(d)}</Link>
                       </td>
                       <td className="py-2 text-on-surface-variant">{DOC_TYPE_LABEL[d.docType]}</td>
+                      <td className="whitespace-nowrap py-2 text-on-surface-variant">{formatDateTime(d.uploadedAt)}</td>
                       <td className="py-2"><StatusBadge status={d.status} /></td>
                       <td className="py-2 text-right mono">{formatIDR(d.data.total_amount)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            )}
-          </Card>
-        </div>
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }
