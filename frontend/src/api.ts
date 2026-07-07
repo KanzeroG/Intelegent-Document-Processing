@@ -180,11 +180,30 @@ export function exportAllUrl(status: "approved" | "all" = "approved"): string {
   return `${API_BASE_URL}/exports/documents.csv?status=${status}`;
 }
 
+// Export a hand-picked set of documents (row selection in My Documents) to
+// CSV. POST so the id list isn't URL-length-bound; saved via the shared
+// blob-download path so it's attributed in the audit trail like other exports.
+export async function downloadSelectedCsv(ids: string[], filename: string): Promise<void> {
+  return downloadFile(`${API_BASE_URL}/exports/selected.csv`, filename, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 // Authenticated download: plain <a href> can't carry the session token, so
 // exports would show as "anonymous" in the audit trail. This fetches with the
 // token, then hands the bytes to the browser as a normal file download.
-export async function downloadFile(url: string, filename: string): Promise<void> {
-  const res = await fetch(url, { headers: authHeaders() });
+export async function downloadFile(
+  url: string,
+  filename: string,
+  init?: { method?: string; body?: string; headers?: Record<string, string> },
+): Promise<void> {
+  const res = await fetch(url, {
+    method: init?.method ?? "GET",
+    headers: { ...authHeaders(), ...(init?.headers ?? {}) },
+    body: init?.body,
+  });
   if (!res.ok) {
     if (res.status === 401 && loadAuth()) {
       clearAuth();

@@ -256,6 +256,34 @@ def export_all_csv(status: str = "approved", user: AuthUser = Depends(get_curren
     )
 
 
+class SelectedExportBody(BaseModel):
+    ids: list[str]
+
+
+@app.post("/exports/selected.csv")
+def export_selected_csv(
+    body: SelectedExportBody, user: AuthUser = Depends(get_current_user)
+) -> Response:
+    """CSV of a hand-picked set of documents (from the My Documents table).
+
+    Reviewer action: token `user` callers are rejected, matching the rest of
+    the export/review surface. Only documents the caller can see are included,
+    returned in the order they were selected."""
+    if _is_scoped_user(user):
+        raise HTTPException(status_code=403, detail="Reviewer (staff/admin) role required.")
+    by_id = {r["id"]: r for r in db.list_documents()}
+    records = [by_id[i] for i in body.ids if i in by_id]
+    if not records:
+        raise HTTPException(status_code=404, detail="None of the selected documents were found.")
+    db.add_audit(actor=user.email, role=user.role.value, action="export",
+                 detail=f"Selected CSV export ({len(records)} docs).")
+    return Response(
+        content=export.to_csv_many(records),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="documents_selected.csv"'},
+    )
+
+
 @app.post("/mock-api/ingest")
 def mock_ingest(payload: dict) -> dict:
     """Mock downstream system (e.g. an ERP). Accepts an approved document and
