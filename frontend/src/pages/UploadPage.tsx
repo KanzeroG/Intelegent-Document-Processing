@@ -3,7 +3,7 @@
 // model handles one at a time); each result is persisted and added to the
 // "My Documents" table as it completes.
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import {
@@ -63,6 +63,23 @@ export default function UploadPage() {
   const [statusFilter, setStatusFilter] = useState<DocStatus | "all">("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close the export menu on outside-click or Escape.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setMenuOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
 
   // Distinct uploader emails present in the current document set (staff/admin).
   const uploaderOptions = useMemo(
@@ -96,10 +113,12 @@ export default function UploadPage() {
     setStatusFilter("all");
   }
 
-  // Selection only applies to currently-visible (filtered) rows.
-  const filteredIds = filtered.map((d) => d.id);
-  const selectedVisible = filteredIds.filter((id) => selected.has(id));
-  const allVisibleSelected = filteredIds.length > 0 && selectedVisible.length === filteredIds.length;
+  // Only APPROVED rows are exportable — a document must clear human review
+  // before its data can leave the system. So only approved rows are selectable.
+  const selectableIds = filtered.filter((d) => d.status === "approved").map((d) => d.id);
+  const selectedVisible = selectableIds.filter((id) => selected.has(id));
+  const allVisibleSelected = selectableIds.length > 0 && selectedVisible.length === selectableIds.length;
+  const approvedAvailable = docs.some((d) => d.status === "approved");
 
   function toggleRow(id: string) {
     setSelected((prev) => {
@@ -113,14 +132,15 @@ export default function UploadPage() {
   function toggleSelectAll() {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (allVisibleSelected) filteredIds.forEach((id) => next.delete(id));
-      else filteredIds.forEach((id) => next.add(id));
+      if (allVisibleSelected) selectableIds.forEach((id) => next.delete(id));
+      else selectableIds.forEach((id) => next.add(id));
       return next;
     });
   }
 
   async function exportSelected() {
     if (selectedVisible.length === 0 || exporting) return;
+    setMenuOpen(false);
     setExporting(true);
     try {
       await downloadSelectedCsv(selectedVisible, "documents_selected.csv");
@@ -130,6 +150,13 @@ export default function UploadPage() {
     } finally {
       setExporting(false);
     }
+  }
+
+  function exportAllApproved() {
+    setMenuOpen(false);
+    downloadFile(exportAllUrl("approved"), "documents_approved.csv").catch((e) =>
+      toast.error(e instanceof Error ? e.message : "Download failed"),
+    );
   }
 
   function addFiles(list: FileList | null) {
@@ -316,30 +343,55 @@ export default function UploadPage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border-base px-5 py-4">
           <h3 className="text-headline-md text-text-primary">My Documents</h3>
           <div className="flex flex-wrap items-center gap-4">
-            {/* Export the current row selection (staff/admin) — attributed in the audit log. */}
-            {canExport && selectedVisible.length > 0 && (
-              <button
-                onClick={() => void exportSelected()}
-                disabled={exporting}
-                className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-body-sm font-semibold text-white hover:bg-primary-container disabled:opacity-50"
-              >
-                <span className="material-symbols-outlined text-base">download</span>
-                {exporting ? "Exporting…" : `Export selected (${selectedVisible.length})`}
-              </button>
-            )}
-            {/* Bulk export is an admin responsibility (staff export per-doc on Review). */}
-            {role === "admin" && docs.some((d) => d.status === "approved") && (
-              <button
-                onClick={() =>
-                  downloadFile(exportAllUrl("approved"), "documents_approved.csv").catch((e) =>
-                    toast.error(e instanceof Error ? e.message : "Download failed"),
-                  )
-                }
-                className="flex items-center gap-1 text-body-sm font-semibold text-secondary hover:underline"
-              >
-                <span className="material-symbols-outlined text-base">download</span>
-                Export approved (CSV)
-              </button>
+            {/* Export menu (staff/admin). Only approved documents are exportable —
+                exports are attributed in the audit log. */}
+            {canExport && (
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setMenuOpen((o) => !o)}
+                  disabled={exporting}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  className="flex items-center gap-1 rounded-lg bg-primary px-3 py-1.5 text-body-sm font-semibold text-white hover:bg-primary-container disabled:opacity-50"
+                >
+                  <span className="material-symbols-outlined text-base">download</span>
+                  {exporting ? "Exporting…" : "Export"}
+                  <span className="material-symbols-outlined text-base">
+                    {menuOpen ? "arrow_drop_up" : "arrow_drop_down"}
+                  </span>
+                </button>
+                {menuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute right-0 z-20 mt-1 w-64 rounded-lg border border-border-base bg-surface-white p-1 shadow-lg"
+                  >
+                    <button
+                      role="menuitem"
+                      onClick={() => void exportSelected()}
+                      disabled={selectedVisible.length === 0}
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-body-sm text-text-primary hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-base">checklist</span>
+                      Export selected to CSV
+                      {selectedVisible.length > 0 && ` (${selectedVisible.length})`}
+                    </button>
+                    {role === "admin" && (
+                      <button
+                        role="menuitem"
+                        onClick={exportAllApproved}
+                        disabled={!approvedAvailable}
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-body-sm text-text-primary hover:bg-surface-container disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <span className="material-symbols-outlined text-base">done_all</span>
+                        Export all approved to CSV
+                      </button>
+                    )}
+                    <p className="px-3 py-1.5 text-label-sm text-on-surface-variant">
+                      Tick approved rows below to export a selection.
+                    </p>
+                  </div>
+                )}
+              </div>
             )}
             <span className="text-body-sm text-on-surface-variant">
               {filtersActive ? `${filtered.length} of ${docs.length}` : docs.length} document(s)
@@ -476,9 +528,11 @@ export default function UploadPage() {
                       <input
                         type="checkbox"
                         checked={allVisibleSelected}
+                        disabled={selectableIds.length === 0}
                         onChange={toggleSelectAll}
-                        aria-label="Select all documents"
-                        className="h-4 w-4 accent-secondary"
+                        aria-label="Select all approved documents"
+                        title="Select all approved documents"
+                        className="h-4 w-4 accent-secondary disabled:opacity-40"
                       />
                     </th>
                   )}
@@ -502,9 +556,15 @@ export default function UploadPage() {
                         <input
                           type="checkbox"
                           checked={selected.has(d.id)}
+                          disabled={d.status !== "approved"}
                           onChange={() => toggleRow(d.id)}
                           aria-label={`Select ${docLabel(d)}`}
-                          className="h-4 w-4 accent-secondary"
+                          title={
+                            d.status === "approved"
+                              ? `Select ${docLabel(d)}`
+                              : "Only approved documents can be exported"
+                          }
+                          className="h-4 w-4 accent-secondary disabled:cursor-not-allowed disabled:opacity-30"
                         />
                       </td>
                     )}

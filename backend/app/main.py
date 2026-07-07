@@ -275,6 +275,11 @@ def export_selected_csv(
     records = [by_id[i] for i in body.ids if i in by_id]
     if not records:
         raise HTTPException(status_code=404, detail="None of the selected documents were found.")
+    # Only approved documents are exportable — a document must clear human
+    # review before its data leaves the system.
+    records = [r for r in records if r.get("status") == "approved"]
+    if not records:
+        raise HTTPException(status_code=400, detail="Only approved documents can be exported.")
     db.add_audit(actor=user.email, role=user.role.value, action="export",
                  detail=f"Selected CSV export ({len(records)} docs).")
     return Response(
