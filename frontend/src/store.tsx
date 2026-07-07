@@ -66,6 +66,7 @@ export interface DocRecord {
   issues: DocumentRecord["issues"];
   previewUrl: string;
   confidence: number;
+  processingTime: number | null;
 }
 
 export function toRecord(r: DocumentRecord): DocRecord {
@@ -81,6 +82,7 @@ export function toRecord(r: DocumentRecord): DocRecord {
     issues: r.issues,
     previewUrl: fileUrl(r.id),
     confidence: r.confidence,
+    processingTime: r.processing_time ?? null,
   };
 }
 

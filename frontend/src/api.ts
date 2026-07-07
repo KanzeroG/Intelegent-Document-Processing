@@ -52,6 +52,7 @@ export interface DocumentRecord {
   data: ExtractedDocument;
   issues: ValidationIssue[];
   uploaded_by: string | null;
+  processing_time?: number | null;
 }
 
 // URL to the stored original file (for preview) — served by the backend.

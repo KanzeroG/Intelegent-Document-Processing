@@ -139,10 +139,13 @@ async def extract(
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not read document: {exc}") from exc
 
+    import time
+    start_time = time.perf_counter()
     try:
         document = extract_document(image_b64, doc_type)
     except ExtractionError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    duration = time.perf_counter() - start_time
 
     issues = validate_document(document)
     rec = _record(document, issues)
@@ -151,6 +154,7 @@ async def extract(
     rec["mime"] = file.content_type or "application/octet-stream"
     rec["uploaded_at"] = date.today().isoformat()
     rec["uploaded_by"] = user.email  # None for tokenless (X-Role fallback) callers
+    rec["processing_time"] = duration
 
     db.insert_document(rec, raw)  # cache the extraction + original file
     db.add_audit(
