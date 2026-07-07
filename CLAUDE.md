@@ -30,7 +30,7 @@ The six required deliverables (see PDF for detail):
 | Layer | Choice | Notes |
 |---|---|---|
 | Vision model | **qwen/qwen3-vl-4b** (Qwen3-VL-4B) | Multimodal/vision; loaded in LM Studio |
-| Model serving | **LM Studio** | OpenAI-compatible server at `http://127.0.0.1:1234/v1` |
+| Model serving | **LM Studio** | OpenAI-compatible server at `http://192.168.56.1:1234/v1` |
 | Backend | **Python + FastAPI** | All extraction/validation logic lives here |
 | Data models | **pydantic** | Schemas are the extraction "contract" |
 | Document loading | **PyMuPDF / pdf2image** | PDF/image → model-readable bytes |
@@ -39,7 +39,7 @@ The six required deliverables (see PDF for detail):
 
 **Why these choices matter for the code:**
 - The model is served **locally** via LM Studio's OpenAI-compatible endpoint
-  (`http://127.0.0.1:1234/v1/chat/completions`); the image is passed as a base64 data-URI
+  (`http://192.168.56.1:1234/v1/chat/completions`); the image is passed as a base64 data-URI
   `image_url`. Model name is `qwen/qwen3-vl-4b`. The model must be **loaded with ~16k context**
   in LM Studio (a rasterized document image is ~4-5k tokens); the OpenAI API has no per-request
   context knob. (History: the team briefly ran `qwen2.5vl:3b` and `gemma4:*` in Ollama —

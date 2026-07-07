@@ -30,8 +30,8 @@ import httpx  # bundled via the openai dependency
 
 from .schemas import Document, DocumentType
 
-# --- LM Studio connection (local, OpenAI-compatible) -------------------------
-LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://127.0.0.1:1234/v1/chat/completions")
+# --- LM Studio connection (local network, OpenAI-compatible) -------------------------
+LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://192.168.56.1:1234/v1/chat/completions")
 MODEL_NAME = "qwen/qwen3-vl-4b"
 REQUEST_TIMEOUT = 300.0  # seconds; inference on the 4B VL model can be slow on 16GB
 
