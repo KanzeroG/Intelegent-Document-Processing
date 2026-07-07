@@ -18,6 +18,9 @@ const ACTION_STYLE: Record<AuditEntry["action"], { label: string; cls: string }>
   status_change: { label: "Status change", cls: "bg-status-neutral/10 text-status-neutral" },
   eval_run: { label: "Eval run", cls: "bg-status-review/10 text-status-review" },
   export: { label: "Export", cls: "bg-secondary/10 text-secondary" },
+  settings_update: { label: "Settings", cls: "bg-status-review/10 text-status-review" },
+  user_create: { label: "User added", cls: "bg-status-success/10 text-status-success" },
+  user_delete: { label: "User removed", cls: "bg-status-error/10 text-status-error" },
 };
 
 export default function AuditPage() {

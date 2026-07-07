@@ -10,7 +10,10 @@ BLOB so document previews survive reloads.
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
+import secrets
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -51,6 +54,34 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 """
 
+_USERS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    email    TEXT PRIMARY KEY,
+    name     TEXT NOT NULL,
+    role     TEXT NOT NULL,
+    password TEXT NOT NULL
+);
+"""
+
+_SETTINGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
+_DEFAULT_SETTINGS = {
+    "ppn_rate": "0.11",
+    "reconcile_tolerance": "1",
+    "low_confidence_threshold": "0.60"
+}
+
+_DEFAULT_USERS = {
+    "user@demo": {"name": "Demo User", "role": "user", "password": "user123"},
+    "staff@demo": {"name": "Demo Staff", "role": "staff", "password": "staff123"},
+    "admin@demo": {"name": "Demo Admin", "role": "admin", "password": "admin123"},
+}
+
 # Columns returned to the frontend (everything except the file blob).
 _META_COLS = (
     "id, doc_number, doc_type, filename, mime, uploaded_at, status, confidence, "
@@ -69,6 +100,21 @@ def init_db() -> None:
     with _connect() as conn:
         conn.execute(_SCHEMA)
         conn.execute(_AUDIT_SCHEMA)
+        conn.execute(_USERS_SCHEMA)
+        conn.execute(_SETTINGS_SCHEMA)
+        
+        # Populate default settings if empty
+        for k, v in _DEFAULT_SETTINGS.items():
+            conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (k, v))
+            
+        # Populate default users if empty. Passwords are stored hashed (salt$sha256);
+        # the plaintext demo values live only in _DEFAULT_USERS for readability.
+        for email, u in _DEFAULT_USERS.items():
+            conn.execute(
+                "INSERT OR IGNORE INTO users (email, name, role, password) VALUES (?, ?, ?, ?)",
+                (email, u["name"], u["role"], _hash_password(u["password"]))
+            )
+
         # Additive migration: databases created before the auth feature lack the
         # uploaded_by column. Idempotent — safe to run on every startup.
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(documents)")}
@@ -218,3 +264,87 @@ def update_document(
     with _connect() as conn:
         cur = conn.execute(f"UPDATE documents SET {', '.join(sets)} WHERE id = :id", params)
         return cur.rowcount > 0
+
+
+# --- users + settings --------------------------------------------------------
+
+def _hash_password(plain: str) -> str:
+    """Hash a password as `salt_hex$sha256(salt + plain)_hex` with a per-user random salt."""
+    salt = secrets.token_bytes(16)
+    digest = hashlib.sha256(salt + plain.encode("utf-8")).hexdigest()
+    return f"{salt.hex()}${digest}"
+
+
+def verify_password(plain: str, stored: str) -> bool:
+    """Constant-time check of `plain` against a stored credential.
+
+    Hashed values look like `salt_hex$digest_hex`. A stored value without the
+    `$` delimiter is treated as legacy plaintext (e.g. a row seeded before
+    hashing was added) and compared directly, so existing demo logins keep
+    working without a manual DB wipe.
+    """
+    if "$" in stored:
+        salt_hex, _, digest = stored.partition("$")
+        try:
+            salt = bytes.fromhex(salt_hex)
+        except ValueError:
+            return False
+        expected = hashlib.sha256(salt + plain.encode("utf-8")).hexdigest()
+        return hmac.compare_digest(expected, digest)
+    return hmac.compare_digest(stored, plain)
+
+
+def get_user(email: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute("SELECT email, name, role, password FROM users WHERE email = ?", (email.strip().lower(),)).fetchone()
+    return dict(row) if row else None
+
+
+def list_users() -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT email, name, role FROM users ORDER BY email").fetchall()
+    return [dict(r) for r in rows]
+
+
+def insert_user(email: str, name: str, role: str, password_plain: str) -> None:
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO users (email, name, role, password) VALUES (?, ?, ?, ?)",
+            (email.strip().lower(), name.strip(), role.strip(), _hash_password(password_plain))
+        )
+
+
+def delete_user(email: str) -> bool:
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM users WHERE email = ?", (email.strip().lower(),))
+        return cur.rowcount > 0
+
+
+def get_settings() -> dict[str, Any]:
+    with _connect() as conn:
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    res = {}
+    for r in rows:
+        key, val = r["key"], r["value"]
+        if key in ("ppn_rate", "low_confidence_threshold"):
+            try:
+                res[key] = float(val)
+            except ValueError:
+                res[key] = val
+        elif key == "reconcile_tolerance":
+            try:
+                res[key] = int(val)
+            except ValueError:
+                res[key] = val
+        else:
+            res[key] = val
+    return res
+
+
+def update_settings(settings: dict[str, Any]) -> None:
+    with _connect() as conn:
+        for k, v in settings.items():
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (k, str(v))
+            )

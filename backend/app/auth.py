@@ -26,6 +26,8 @@ from enum import Enum
 from fastapi import Depends, Header, HTTPException
 from pydantic import BaseModel
 
+from . import db
+
 
 class Role(str, Enum):
     USER = "user"
@@ -41,14 +43,6 @@ class AuthUser(BaseModel):
     name: str
     role: Role
 
-
-# Demo accounts, one per role. A real deployment would store salted hashes in a
-# users table; plaintext keeps the local demo inspectable and is not a secret.
-_DEMO_USERS: dict[str, dict[str, str]] = {
-    "user@demo": {"password": "user123", "name": "Demo User", "role": "user"},
-    "staff@demo": {"password": "staff123", "name": "Demo Staff", "role": "staff"},
-    "admin@demo": {"password": "admin123", "name": "Demo Admin", "role": "admin"},
-}
 
 # Signing secret — override via env for anything beyond local demo use.
 _SECRET = os.getenv("AUTH_SECRET", "docextract-dev-secret").encode()
@@ -67,12 +61,11 @@ def _sign(payload: bytes) -> str:
 
 
 def authenticate(email: str, password: str) -> AuthUser | None:
-    """Check demo credentials; None when they don't match."""
-    key = email.strip().lower()
-    entry = _DEMO_USERS.get(key)
-    if not entry or not hmac.compare_digest(entry["password"], password):
+    """Check user credentials; None when they don't match."""
+    u = db.get_user(email)
+    if not u or not db.verify_password(password, u["password"]):
         return None
-    return AuthUser(email=key, name=entry["name"], role=Role(entry["role"]))
+    return AuthUser(email=u["email"], name=u["name"], role=Role(u["role"]))
 
 
 def create_token(user: AuthUser) -> str:

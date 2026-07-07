@@ -41,6 +41,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from . import db
 from .schemas import Document, DocumentType
 
 # Absolute tolerance (in Rupiah) when comparing sums — covers rounding.
@@ -72,7 +73,7 @@ def validate_document(
     doc: Document,
     field_confidences: dict[str, float] | None = None,
     *,
-    low_confidence_threshold: float = _DEFAULT_LOW_CONFIDENCE,
+    low_confidence_threshold: float | None = None,
 ) -> list[ValidationIssue]:
     """Run business rules over an extracted document; return any issues found.
 
@@ -83,6 +84,16 @@ def validate_document(
             human review. Safe to omit until extraction emits confidences.
         low_confidence_threshold: cutoff for the confidence hook.
     """
+    try:
+        settings = db.get_settings()
+    except Exception:
+        settings = {}
+
+    ppn_rate = settings.get("ppn_rate", _PPN_RATE)
+    reconcile_tolerance = settings.get("reconcile_tolerance", _RECONCILE_TOLERANCE)
+    if low_confidence_threshold is None:
+        low_confidence_threshold = settings.get("low_confidence_threshold", _DEFAULT_LOW_CONFIDENCE)
+
     issues: list[ValidationIssue] = []
 
     def err(field: str, message: str) -> None:
@@ -100,7 +111,7 @@ def validate_document(
     line_totals = [li.line_total for li in doc.line_items if li.line_total is not None]
     if line_totals and doc.subtotal is not None:
         summed = sum(line_totals)
-        if abs(summed - doc.subtotal) > _RECONCILE_TOLERANCE:
+        if abs(summed - doc.subtotal) > reconcile_tolerance:
             warn(
                 "line_items",
                 f"Line items sum to {summed}, which does not match subtotal {doc.subtotal}.",
@@ -109,21 +120,21 @@ def validate_document(
     # 3. subtotal + tax == total. A mismatch is a hard arithmetic contradiction -> error.
     if doc.subtotal is not None and doc.total_amount is not None:
         tax = doc.tax_amount or 0
-        if abs((doc.subtotal + tax) - doc.total_amount) > _RECONCILE_TOLERANCE:
+        if abs((doc.subtotal + tax) - doc.total_amount) > reconcile_tolerance:
             err(
                 "total_amount",
                 f"subtotal ({doc.subtotal}) + tax ({tax}) = {doc.subtotal + tax}, "
                 f"but total_amount is {doc.total_amount}.",
             )
 
-    # 4. PPN 11% expectation by document type.
+    # 4. PPN expectations by document type.
     if doc.doc_type in _TAXED_TYPES:
         if doc.subtotal is not None and doc.tax_amount is not None and doc.subtotal > 0:
             rate = doc.tax_amount / doc.subtotal
-            if abs(rate - _PPN_RATE) > _PPN_TOLERANCE:
+            if abs(rate - ppn_rate) > _PPN_TOLERANCE:
                 warn(
                     "tax_amount",
-                    f"Tax is {rate * 100:.1f}% of subtotal; expected PPN 11%.",
+                    f"Tax is {rate * 100:.1f}% of subtotal; expected PPN {ppn_rate * 100:.1f}%.",
                 )
     elif doc.doc_type is DocumentType.RECEIPT and doc.tax_amount:
         warn("tax_amount", "Receipts should not have a separate tax line.")
@@ -150,7 +161,7 @@ def validate_document(
     for idx, li in enumerate(doc.line_items):
         if li.qty is not None and li.unit_price is not None and li.line_total is not None:
             expected = round(li.qty * li.unit_price)
-            if abs(expected - li.line_total) > _RECONCILE_TOLERANCE:
+            if abs(expected - li.line_total) > reconcile_tolerance:
                 warn(
                     f"line_items[{idx}].line_total",
                     f"'{li.description}': qty ({li.qty}) x unit_price ({li.unit_price}) "

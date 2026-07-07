@@ -20,6 +20,7 @@ const NAV: { to: string; label: string; icon: string; roles: Role[] }[] = [
   { to: "/chat", label: "Assistant", icon: "forum", roles: ["user", "staff", "admin"] },
   { to: "/audit", label: "Audit Log", icon: "history", roles: ["admin"] },
   { to: "/performance", label: "Model Speed", icon: "speed", roles: ["admin"] },
+  { to: "/admin/settings", label: "Settings", icon: "settings", roles: ["admin"] },
 ];
 
 export default function AppShell() {
@@ -71,6 +72,7 @@ export default function AppShell() {
     if (p.startsWith("/chat")) return "Assistant";
     if (p.startsWith("/audit")) return "Audit Log";
     if (p.startsWith("/performance")) return "Model Performance";
+    if (p.startsWith("/admin/settings")) return "Settings";
     return "DocExtract";
   }
 

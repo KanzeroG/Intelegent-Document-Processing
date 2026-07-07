@@ -243,6 +243,97 @@ def audit_log(limit: int = 200, _: Role = Depends(require_admin)) -> list[dict]:
     return db.list_audit(limit=limit)
 
 
+# --- admin: validation settings + user management ----------------------------
+
+class SettingsBody(BaseModel):
+    """Editable validation settings. Omitted (None) fields are left unchanged."""
+
+    ppn_rate: float | None = None
+    reconcile_tolerance: int | None = None
+    low_confidence_threshold: float | None = None
+
+
+@app.get("/admin/settings")
+def admin_get_settings(_: Role = Depends(require_admin)) -> dict:
+    """Current validation configuration (admin only)."""
+    return db.get_settings()
+
+
+@app.patch("/admin/settings")
+def admin_update_settings(
+    body: SettingsBody,
+    user: AuthUser = Depends(get_current_user),
+    _: Role = Depends(require_admin),
+) -> dict:
+    """Update validation settings (admin only). Subsequent extractions/re-validations
+    pick these up via db.get_settings() — see validation.py."""
+    updates: dict = {}
+    if body.ppn_rate is not None:
+        updates["ppn_rate"] = max(0.0, min(1.0, body.ppn_rate))
+    if body.reconcile_tolerance is not None:
+        updates["reconcile_tolerance"] = max(0, body.reconcile_tolerance)
+    if body.low_confidence_threshold is not None:
+        updates["low_confidence_threshold"] = max(0.0, min(1.0, body.low_confidence_threshold))
+    if not updates:
+        raise HTTPException(status_code=400, detail="No settings provided.")
+    db.update_settings(updates)
+    db.add_audit(
+        actor=user.email, role=user.role.value, action="settings_update",
+        detail="Updated settings: " + ", ".join(f"{k}={v}" for k, v in updates.items()) + ".",
+    )
+    return db.get_settings()
+
+
+class NewUserBody(BaseModel):
+    """A user to create. `role` is validated against the Role enum (422 on a bad value)."""
+
+    email: str
+    name: str
+    role: Role
+    password: str
+
+
+@app.get("/admin/users")
+def admin_list_users(_: Role = Depends(require_admin)) -> list[dict]:
+    """All registered users (admin only); never includes password hashes."""
+    return db.list_users()
+
+
+@app.post("/admin/users")
+def admin_create_user(
+    body: NewUserBody,
+    user: AuthUser = Depends(get_current_user),
+    _: Role = Depends(require_admin),
+) -> dict:
+    """Create a user (admin only). 409 if the email is already taken."""
+    email = body.email.strip().lower()
+    if not email or not body.password:
+        raise HTTPException(status_code=400, detail="Email and password are required.")
+    if db.get_user(email):
+        raise HTTPException(status_code=409, detail="A user with that email already exists.")
+    db.insert_user(email, body.name, body.role.value, body.password)
+    db.add_audit(actor=user.email, role=user.role.value, action="user_create",
+                 detail=f"Created user {email} ({body.role.value}).")
+    return {"email": email, "name": body.name.strip(), "role": body.role.value}
+
+
+@app.delete("/admin/users/{email}")
+def admin_delete_user(
+    email: str,
+    user: AuthUser = Depends(get_current_user),
+    _: Role = Depends(require_admin),
+) -> dict:
+    """Delete a user (admin only). Deleting your own account is blocked to avoid lockout."""
+    target = email.strip().lower()
+    if user.email and target == user.email:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account.")
+    if not db.delete_user(target):
+        raise HTTPException(status_code=404, detail="User not found.")
+    db.add_audit(actor=user.email, role=user.role.value, action="user_delete",
+                 detail=f"Deleted user {target}.")
+    return {"deleted": True}
+
+
 @app.get("/exports/documents.csv")
 def export_all_csv(status: str = "approved", user: AuthUser = Depends(get_current_user)) -> Response:
     """Bulk CSV of documents, filtered by status (default: approved). Use

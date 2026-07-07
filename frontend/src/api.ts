@@ -258,13 +258,65 @@ export interface AuditEntry {
   ts: string;
   actor: string | null;
   role: Role | null;
-  action: "login" | "login_failed" | "upload" | "update" | "approve" | "reject" | "status_change" | "eval_run" | "export";
+  action: "login" | "login_failed" | "upload" | "update" | "approve" | "reject" | "status_change" | "eval_run" | "export" | "settings_update" | "user_create" | "user_delete";
   doc_id: string | null;
   detail: string;
 }
 
 export async function listAudit(limit = 200): Promise<AuditEntry[]> {
   return unwrap(await fetch(`${API_BASE_URL}/audit?limit=${limit}`, { headers: authHeaders() }));
+}
+
+// ---- Admin: validation settings + user management (admin) -------------------
+
+// Validation thresholds the admin can tune (mirrors backend db.get_settings()).
+export interface AppSettings {
+  ppn_rate: number; // fraction, e.g. 0.11 for 11%
+  reconcile_tolerance: number; // Rupiah
+  low_confidence_threshold: number; // 0–1
+}
+
+export interface UserAccount {
+  email: string;
+  name: string;
+  role: Role;
+}
+
+export async function getSettings(): Promise<AppSettings> {
+  return unwrap(await fetch(`${API_BASE_URL}/admin/settings`, { headers: authHeaders() }));
+}
+
+// PATCH only the provided fields; backend clamps and leaves the rest unchanged.
+export async function updateSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
+  return unwrap(await fetch(`${API_BASE_URL}/admin/settings`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(patch),
+  }));
+}
+
+export async function listUsers(): Promise<UserAccount[]> {
+  return unwrap(await fetch(`${API_BASE_URL}/admin/users`, { headers: authHeaders() }));
+}
+
+export async function createUser(u: {
+  email: string;
+  name: string;
+  role: Role;
+  password: string;
+}): Promise<UserAccount> {
+  return unwrap(await fetch(`${API_BASE_URL}/admin/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(u),
+  }));
+}
+
+export async function deleteUser(email: string): Promise<{ deleted: boolean }> {
+  return unwrap(await fetch(`${API_BASE_URL}/admin/users/${encodeURIComponent(email)}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  }));
 }
 
 // ---- RAG assistant (bonus) ---------------------------------------------------
