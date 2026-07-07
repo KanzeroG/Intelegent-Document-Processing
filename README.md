@@ -18,7 +18,7 @@ React (Vite)  ──HTTP──►  FastAPI (Python)  ──►  LM Studio server
                             export
 ```
 
-The **backend + model run locally** (LM Studio on `192.168.56.1:1234`). A
+The **backend + model run locally** (LM Studio on `192.168.1.10:1234`). A
 cloud-hosted (e.g. Vercel) frontend cannot reach a model on your laptop, so for
 development run everything locally. The frontend's API URL is configurable via
 `VITE_API_BASE_URL` for when the backend is reachable elsewhere.
@@ -58,7 +58,7 @@ admin config, batch upload).
 ## Prerequisites
 
 1. **LM Studio** with `qwen/qwen3-vl-4b` loaded (context length ~16k) and its
-   server started (OpenAI-compatible at `http://192.168.56.1:1234/v1`).
+   server started (OpenAI-compatible at `http://192.168.1.10:1234/v1`).
 2. **Python 3.11+** and **Node 18+**.
 
 ## Run it
