@@ -19,6 +19,8 @@ import StatusBadge from "../components/StatusBadge";
 import { DOC_TYPE_LABEL, docLabel, formatDateTime } from "../lib/format";
 
 const TYPES: DocType[] = ["invoice", "purchase_order", "receipt"];
+// Type stamped on newly added files; change each file's type in the staged list.
+const DEFAULT_DOC_TYPE: DocType = "invoice";
 const STATUSES: DocStatus[] = ["extracted", "in_review", "flagged", "approved", "rejected"];
 const STATUS_LABEL: Record<DocStatus, string> = {
   extracted: "Extracted",
@@ -42,7 +44,6 @@ export default function UploadPage() {
   const { docs, addRecord, loading: docsLoading, loadError } = useDocuments();
   const navigate = useNavigate();
 
-  const [defaultType, setDefaultType] = useState<DocType>("invoice");
   const [staged, setStaged] = useState<Staged[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
@@ -161,7 +162,7 @@ export default function UploadPage() {
 
   function addFiles(list: FileList | null) {
     if (!list) return;
-    const next = Array.from(list).map((file) => ({ key: newKey(), file, docType: defaultType }));
+    const next = Array.from(list).map((file) => ({ key: newKey(), file, docType: DEFAULT_DOC_TYPE }));
     setStaged((prev) => [...prev, ...next]);
   }
 
@@ -306,22 +307,6 @@ export default function UploadPage() {
         {/* Processing settings */}
         <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
           <h3 className="text-headline-md text-text-primary">Processing Settings</h3>
-
-          <label className="mt-4 block">
-            <span className="text-label-md text-on-surface-variant">Default document type</span>
-            <select
-              value={defaultType}
-              onChange={(e) => setDefaultType(e.target.value as DocType)}
-              className="mt-1.5 h-10 w-full rounded-lg border border-border-base bg-surface-white px-3 text-body-md"
-            >
-              {TYPES.map((t) => (
-                <option key={t} value={t}>{DOC_TYPE_LABEL[t]}</option>
-              ))}
-            </select>
-            <span className="mt-1 block text-body-sm text-on-surface-variant">
-              Applied to newly added files; adjust each file's type in the list.
-            </span>
-          </label>
 
           <label className="mt-4 block">
             <span className="text-label-md text-on-surface-variant">Extraction Language</span>
