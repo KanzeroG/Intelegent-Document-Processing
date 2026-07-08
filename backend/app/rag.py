@@ -3,9 +3,11 @@
 Two answering modes:
   - Per-document: the caller names a doc_id. Its extracted JSON is small, so it
     goes straight into the prompt — no retrieval needed.
-  - Cross-document: every record is condensed to a one-line summary, embedded
-    via LM Studio's embeddings endpoint, and cosine-ranked against the
-    question; the top matches become the prompt context.
+  - Cross-document: at the current ~60-doc scale the whole visible corpus fits
+    in the model's 16k window, so every record's one-line summary goes into the
+    prompt and answers cover ALL documents (counts, sums, "which are flagged").
+    Above _MAX_CONTEXT_DOCS it falls back to embedding + cosine retrieval of the
+    top matches via LM Studio's embeddings endpoint.
 
 Everything runs on the same local LM Studio server as extraction (the chat call
 reuses the vision model in text-only mode). A module-level lock serializes
@@ -33,7 +35,13 @@ from .extraction import LM_STUDIO_URL, MODEL_NAME
 _EMBED_URL = LM_STUDIO_URL.rsplit("/chat/completions", 1)[0] + "/embeddings"
 _EMBED_MODEL = "text-embedding-nomic-embed-text-v1.5"
 _TIMEOUT = 120.0
-_TOP_K = 5
+# Cross-document answering: when the visible corpus is at or below this size it
+# all fits in the model's 16k window, so every document goes into the prompt and
+# corpus-wide questions ("how many are flagged?", "total across all vendors") are
+# answered over ALL records. Above it, fall back to embedding retrieval of the
+# top-K most relevant documents. (~150 tokens/summary; 60 docs ≈ 9k tokens.)
+_MAX_CONTEXT_DOCS = 60
+_TOP_K = 12
 
 _lock = threading.Lock()
 
@@ -156,8 +164,34 @@ _SYSTEM_PROMPT = (
     "receipts; all amounts are whole Indonesian Rupiah integers). Answer ONLY "
     "from the document data provided below — never invent documents or figures. "
     "Cite document numbers when you refer to specific documents. If the answer "
-    "is not in the provided data, say so plainly."
+    "is not in the provided data, say so plainly. Be concise: give the final "
+    "answer directly — do not narrate step-by-step reasoning or self-corrections. "
+    "Treat repeated document numbers as the same document (count each once)."
 )
+
+
+def _citations(answer: str, context_docs: list[dict[str, Any]]) -> list[dict[str, str | None]]:
+    """Which documents to cite under the answer.
+
+    Prefer the documents whose number the answer actually names — precise, and
+    avoids dumping all 60 docs as "sources" on an aggregate answer. If none are
+    named but only a retrieved handful was in context, cite those (they were the
+    retrieved sources); for a whole-corpus aggregate that names no document, cite
+    nothing.
+    """
+    named = [
+        {"doc_id": rec["id"], "doc_number": rec.get("doc_number")}
+        for rec in context_docs
+        if rec.get("doc_number") and str(rec["doc_number"]) in answer
+    ]
+    if named:
+        return named
+    if len(context_docs) <= _TOP_K:
+        return [
+            {"doc_id": rec["id"], "doc_number": rec.get("doc_number")}
+            for rec in context_docs
+        ]
+    return []
 
 
 def answer_question(
@@ -189,13 +223,16 @@ def answer_question(
                 "There are no extracted documents to search yet — upload one on the Upload page first.",
                 [],
             )
+        elif len(records) <= _MAX_CONTEXT_DOCS:
+            # Small corpus: hand the model every visible document so it answers
+            # over the whole set (counts, sums, "which are flagged") rather than
+            # a retrieved handful. No embeddings needed at this scale.
+            context_docs = records
+            context = "\n".join(f"- {summarize_record(rec)}" for rec in records)
         else:
+            # Large corpus: retrieve the most relevant documents.
             context_docs = _top_documents(question, records)
             context = "\n".join(f"- {summarize_record(rec)}" for rec in context_docs)
 
         answer = _chat(_SYSTEM_PROMPT, f"Document data:\n{context}\n\nQuestion: {question}")
-        citations = [
-            {"doc_id": rec["id"], "doc_number": rec.get("doc_number")}
-            for rec in context_docs
-        ]
-        return answer, citations
+        return answer, _citations(answer, context_docs)
