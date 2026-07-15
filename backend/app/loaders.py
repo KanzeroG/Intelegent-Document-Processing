@@ -13,13 +13,19 @@ from __future__ import annotations
 import base64
 import io
 
+import os
+
 import fitz  # PyMuPDF
 from PIL import Image
 
 # Rasterization zoom for PDFs. 3.0 ≈ 216 DPI: empirically needed for qwen2.5vl:3b
 # to read small table digits (qty / unit price) and document numbers reliably.
 # Higher (4.0) gave no gain and cost more tokens/time on the 16GB target machine.
-_PDF_ZOOM = 3.0
+#
+# Overridable so the zoom/latency/accuracy trade-off can be swept against the
+# eval harness — the current model (qwen3-vl-4b) reads better than the qwen2.5vl
+# this was tuned for, and latency scales with pixel count.
+_PDF_ZOOM = float(os.getenv("PDF_ZOOM", "3.0"))
 
 
 def _png_to_base64(png_bytes: bytes) -> str:

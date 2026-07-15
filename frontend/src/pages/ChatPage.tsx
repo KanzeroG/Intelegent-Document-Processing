@@ -6,7 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { chat, type ChatCitation } from "../api";
+import { chat, listModels, type ChatCitation, type ModelOption } from "../api";
 import { useDocuments } from "../store";
 import { docLabel } from "../lib/format";
 
@@ -30,6 +30,29 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+
+  // Answering model. Empty string = the backend's chat default (local qwen), so
+  // the picker never has to hard-code which model that is.
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [model, setModel] = useState("");
+
+  useEffect(() => {
+    // Non-fatal: if /models is unreachable the picker hides and chat uses the
+    // backend default, exactly as it did before this existed.
+    listModels()
+      .then((m) => {
+        setModels(m);
+        // Preselect the backend's chat default (CHAT_MODEL) rather than guessing,
+        // so .env stays authoritative. Fall back to any usable model.
+        setModel(
+          (cur) =>
+            cur || m.find((x) => x.default_chat)?.key || m.find((x) => x.configured)?.key || "",
+        );
+      })
+      .catch(() => setModels([]));
+  }, []);
+
+  const activeModel = models.find((m) => m.key === model);
   const endRef = useRef<HTMLDivElement>(null);
 
   // A deep-linked doc the caller can't see (or a stale id) falls back to "all".
@@ -52,7 +75,7 @@ export default function ChatPage() {
     setMessages((m) => [...m, { who: "user", text: question }]);
     setPending(true);
     try {
-      const res = await chat(question, scope === "all" ? undefined : scope);
+      const res = await chat(question, scope === "all" ? undefined : scope, model || undefined);
       setMessages((m) => [...m, { who: "assistant", text: res.answer, citations: res.citations }]);
     } catch (e) {
       setMessages((m) => [
@@ -70,7 +93,10 @@ export default function ChatPage() {
 
   return (
     <div className="mx-auto flex h-[calc(100vh-112px)] max-w-4xl flex-col">
-      {/* Header: title + scope selector */}
+      {/* Header: title + model/scope selectors. The selectors `grow` and centre
+          their own content, so they stay centred both inline and once they wrap
+          onto their own row at narrow widths (where justify-between would
+          otherwise strand them hard left). */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-t-lg border border-border-base bg-surface-white px-5 py-4">
         <div>
           <h1 className="text-headline-md text-text-primary">Document Assistant</h1>
@@ -78,23 +104,56 @@ export default function ChatPage() {
             Answers come only from your extracted documents, with citations.
           </p>
         </div>
-        <label className="flex items-center gap-2 text-body-sm text-on-surface-variant">
-          <span className="material-symbols-outlined text-base">filter_alt</span>
-          <select
-            value={scope}
-            onChange={(e) => setScope(e.target.value)}
-            aria-label="Chat scope"
-            className="max-w-[240px] rounded-lg border border-border-base bg-surface-white px-3 py-1.5 text-body-md text-text-primary"
-          >
-            <option value="all">All documents ({docs.length})</option>
-            {docs.map((d) => (
-              <option key={d.id} value={d.id}>
-                {docLabel(d)} — {d.data.vendor ?? d.fileName}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex grow flex-wrap items-center justify-center gap-3">
+          {/* Answering model. Hidden if /models is unreachable — chat then uses
+              the backend default. */}
+          {models.length > 0 && (
+            <label className="flex items-center gap-2 text-body-sm text-on-surface-variant">
+              <span className="material-symbols-outlined text-base">neurology</span>
+              <select
+                value={model}
+                disabled={pending}
+                onChange={(e) => setModel(e.target.value)}
+                aria-label="Assistant model"
+                className="max-w-[220px] rounded-lg border border-border-base bg-surface-white px-3 py-1.5 text-body-md text-text-primary disabled:opacity-50"
+              >
+                {models.map((m) => (
+                  <option key={m.key} value={m.key} disabled={!m.configured}>
+                    {m.label}
+                    {!m.configured ? " — API key needed" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className="flex items-center gap-2 text-body-sm text-on-surface-variant">
+            <span className="material-symbols-outlined text-base">filter_alt</span>
+            <select
+              value={scope}
+              onChange={(e) => setScope(e.target.value)}
+              aria-label="Chat scope"
+              className="max-w-[240px] rounded-lg border border-border-base bg-surface-white px-3 py-1.5 text-body-md text-text-primary"
+            >
+              <option value="all">All documents ({docs.length})</option>
+              {docs.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {docLabel(d)} — {d.data.vendor ?? d.fileName}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
+
+      {/* Hosted models send document data off this machine — the Assistant is
+          local by default, so make any departure from that visible. */}
+      {activeModel?.remote && (
+        <div className="flex items-center gap-1.5 border-x border-border-base bg-status-review/5 px-5 py-2 text-body-sm text-status-review">
+          <span className="material-symbols-outlined text-base">cloud_upload</span>
+          Your document data is sent to a hosted API to answer these questions.
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 space-y-4 overflow-y-auto border-x border-border-base bg-surface-container-low/40 p-5">

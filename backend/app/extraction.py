@@ -25,15 +25,100 @@ from __future__ import annotations
 import json
 import os
 import re
+from dataclasses import dataclass
 
 import httpx  # bundled via the openai dependency
 
 from .schemas import Document, DocumentType
 
-# --- LM Studio connection (local network, OpenAI-compatible) -------------------------
+# --- model profiles ----------------------------------------------------------
+# A profile is one servable vision model: where it lives, what the server calls
+# it, and how it has to be driven. Both LM Studio and Ollama speak the same
+# OpenAI-compatible chat-completions API, so nothing below the transport differs
+# — which is why one client covers both.
+
+
+@dataclass(frozen=True)
+class ModelProfile:
+    """One vision model that /extract can be pointed at."""
+
+    key: str            # stable id used by the API (?model=)
+    label: str          # human-readable, for the UI picker
+    url: str            # OpenAI-compatible chat-completions endpoint
+    model: str          # model id as that server knows it
+    reasoning_effort: str | None = None  # omitted from the payload when None
+    # Name of the env var holding this endpoint's bearer token. Local servers
+    # need none; hosted ones do. The key is read at request time and never
+    # stored on the profile, so it can't leak into logs or /models responses.
+    api_key_env: str | None = None
+    remote: bool = False  # True => documents leave this machine (see BUSINESS_CASE.md)
+
+    def auth_headers(self) -> dict[str, str]:
+        """Bearer header for this endpoint, or {} when it needs no auth."""
+        if not self.api_key_env:
+            return {}
+        secret = os.getenv(self.api_key_env)
+        return {"Authorization": f"Bearer {secret}"} if secret else {}
+
+    @property
+    def configured(self) -> bool:
+        """False when this profile needs an API key that isn't set."""
+        return not self.api_key_env or bool(os.getenv(self.api_key_env))
+
+
 LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://192.168.1.10:1234/v1/chat/completions")
-MODEL_NAME = "qwen/qwen3-vl-4b"
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434/v1/chat/completions")
+MODEL_NAME = os.getenv("MODEL_NAME", "qwen/qwen3-vl-4b")
+REASONING_EFFORT = os.getenv("REASONING_EFFORT")
+
+MODEL_PROFILES: dict[str, ModelProfile] = {
+    "qwen": ModelProfile(
+        key="qwen",
+        label="Qwen3-VL-4B · LM Studio",
+        url=LM_STUDIO_URL,
+        model=MODEL_NAME,
+        # Instruct variant — no thinking tokens to suppress. Left overridable
+        # anyway so a Thinking build can be driven without a code change.
+        reasoning_effort=REASONING_EFFORT,
+    ),
+    "minicpm": ModelProfile(
+        key="minicpm",
+        label="MiniCPM-V 4.6 · Ollama",
+        url=OLLAMA_URL,
+        model=os.getenv("MINICPM_MODEL", "minicpm-v4.6:q8_0"),
+        # Thinking is ON by default here and dominates latency: measured ~2,100
+        # reasoning tokens / 48s per document, vs ~180 tokens / 9s with it off.
+        # Ollama honours this only via reasoning_effort — `think: false` and
+        # chat_template_kwargs are silently ignored on its OpenAI endpoint.
+        reasoning_effort="none",
+    ),
+    "gemini": ModelProfile(
+        key="gemini",
+        label="Gemini · Google API",
+        # Google exposes an OpenAI-compatible surface, so the same client works.
+        url=os.getenv(
+            "GEMINI_URL",
+            "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+        ),
+        # 3.1 Flash-Lite: the GA vision model of the 3.1 line (3.1 Pro is still
+        # preview-only) and free-tier eligible. Images bill as a flat ~258 tokens
+        # regardless of resolution, so PDF_ZOOM does not affect cost here.
+        model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
+        api_key_env="GEMINI_API_KEY",
+        # Hosted: documents are sent to Google. This breaks two claims in
+        # BUSINESS_CASE.md — "compute cost ~0" (billed per token) and "data never
+        # leaves the machine" — so it is deliberately not the default.
+        remote=True,
+    ),
+}
+DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "qwen")
+
 REQUEST_TIMEOUT = 300.0  # seconds; inference on the 4B VL model can be slow on 16GB
+
+
+def get_profile(key: str | None) -> ModelProfile:
+    """Resolve a profile key to a profile. Falls back to the default."""
+    return MODEL_PROFILES.get(key or DEFAULT_MODEL) or MODEL_PROFILES[DEFAULT_MODEL]
 
 
 class ExtractionError(RuntimeError):
@@ -90,6 +175,54 @@ def _extract_json_object(text: str) -> str:
     return text[start : end + 1]
 
 
+# Fields that identify a filled-in document (none of which exist on a JSON Schema).
+_DOC_MARKERS = ("doc_number", "vendor", "total_amount", "line_items")
+
+
+def _unwrap_schema_echo(text: str) -> str:
+    """Recover values from a model that echoed the schema instead of filling it.
+
+    We hand the model `Document.model_json_schema()` and ask for an instance.
+    Smaller models (minicpm-v4.6 does this consistently) instead mirror the
+    schema's own shape back — `{"$defs": …, "properties": {…values…},
+    "required": […], "title": "Invoice"}` — with the *correct* values nested one
+    level down under "properties".
+
+    Document has no "properties" field, so a top-level "properties" holding
+    document-looking keys is unambiguously this mistake, not real data. If the
+    model returned a genuine schema (values are type-dicts, not scalars), the
+    unwrap yields something that fails validation exactly as it would have.
+    """
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(obj, dict):
+        return text
+    inner = obj.get("properties")
+    if isinstance(inner, dict) and any(k in inner for k in _DOC_MARKERS):
+        return json.dumps(inner)
+    return text
+
+
+def _ensure_doc_type(text: str, doc_type: DocumentType) -> str:
+    """Supply doc_type when the model omits it from the object.
+
+    The caller's selection is authoritative — we overwrite the model's guess
+    regardless — so a missing doc_type should not fail validation. minicpm-v4.6
+    stashes it under "$defs" instead of the object, which would otherwise cost us
+    an entire extraction whose other fields parsed fine.
+    """
+    try:
+        obj = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(obj, dict):
+        return text
+    obj["doc_type"] = doc_type.value
+    return json.dumps(obj)
+
+
 # Month names → number, covering English and Indonesian (incl. common
 # abbreviations) so dates like "24 Feb 2026" or "24 Agu 2026" normalize.
 _MONTHS = {
@@ -141,13 +274,27 @@ def _normalize_date(value: str | None) -> str | None:
     return v
 
 
-def extract_document(image_b64: str, doc_type: DocumentType) -> Document:
+def extract_document(
+    image_b64: str, doc_type: DocumentType, model: str | None = None
+) -> Document:
     """Run extraction for one document image and return a validated Document.
+
+    Args:
+        image_b64: the document rendered to a base64 PNG (see loaders.py).
+        doc_type: the caller's document-type selection; trusted over the model's.
+        model: a MODEL_PROFILES key (e.g. "qwen", "minicpm"). Defaults to
+            DEFAULT_MODEL, so existing callers are unaffected.
 
     Raises ExtractionError on connection failure or unparseable model output.
     """
+    profile = get_profile(model)
+    if not profile.configured:
+        raise ExtractionError(
+            f"{profile.label} needs an API key. Set {profile.api_key_env} in "
+            "backend/.env and restart the backend."
+        )
     payload = {
-        "model": MODEL_NAME,
+        "model": profile.model,
         "temperature": 0,
         "messages": [
             {
@@ -162,18 +309,30 @@ def extract_document(image_b64: str, doc_type: DocumentType) -> Document:
             }
         ],
     }
+    if profile.reasoning_effort:
+        payload["reasoning_effort"] = profile.reasoning_effort
 
     try:
-        resp = httpx.post(LM_STUDIO_URL, json=payload, timeout=REQUEST_TIMEOUT)
+        resp = httpx.post(
+            profile.url, json=payload, headers=profile.auth_headers(), timeout=REQUEST_TIMEOUT
+        )
         resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        # Surface the server's own complaint (bad key, bad model name, quota),
+        # which is far more actionable than a bare status code.
+        raise ExtractionError(
+            f"{profile.label} rejected the request ({exc.response.status_code}): "
+            f"{exc.response.text[:300]}"
+        ) from exc
     except httpx.HTTPError as exc:
         raise ExtractionError(
-            "Could not reach the local vision model. Is LM Studio running with "
-            f"'{MODEL_NAME}' loaded and its server started at {LM_STUDIO_URL}? ({exc})"
+            f"Could not reach the vision model '{profile.model}'. Is its server "
+            f"running at {profile.url}? ({exc})"
         ) from exc
 
     content = resp.json()["choices"][0]["message"]["content"] or ""
-    cleaned = _extract_json_object(_strip_fences(content))
+    cleaned = _unwrap_schema_echo(_extract_json_object(_strip_fences(content)))
+    cleaned = _ensure_doc_type(cleaned, doc_type)
 
     try:
         document = Document.model_validate_json(cleaned)

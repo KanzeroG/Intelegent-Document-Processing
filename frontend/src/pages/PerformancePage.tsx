@@ -1,7 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useDocuments } from "../store";
 import { docLabel, formatDateTime, DOC_TYPE_LABEL } from "../lib/format";
+import { listModels, type ModelOption } from "../api";
 import StatusBadge from "../components/StatusBadge";
 
 export default function PerformancePage() {
@@ -9,7 +10,22 @@ export default function PerformancePage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [speedFilter, setSpeedFilter] = useState<string>("all");
+  const [modelFilter, setModelFilter] = useState<string>("all");
   const [refreshing, setRefreshing] = useState(false);
+
+  // Model labels come from the backend registry rather than a hardcoded map,
+  // so a model added there is named correctly here without a frontend change.
+  const [models, setModels] = useState<ModelOption[]>([]);
+  useEffect(() => {
+    listModels()
+      .then(setModels)
+      .catch(() => setModels([]));
+  }, []);
+
+  // Falls back to the raw key: documents extracted before a model was renamed
+  // (or removed from the registry) still show something meaningful.
+  const modelLabel = (key: string | null) =>
+    key ? models.find((m) => m.key === key)?.label ?? key : "—";
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -47,6 +63,32 @@ export default function PerformancePage() {
     };
   }, [timedDocs]);
 
+  // Breakdown by extraction model. This is the dominant factor in latency now
+  // that several models are selectable — a single blended average across them
+  // would hide a 2-3x difference, so report each one separately.
+  const modelBreakdown = useMemo(() => {
+    const byKey = new Map<string, number[]>();
+    for (const d of timedDocs) {
+      const key = d.model ?? "unknown";
+      const list = byKey.get(key) ?? [];
+      list.push(d.processingTime as number);
+      byKey.set(key, list);
+    }
+    return [...byKey.entries()]
+      .map(([key, times]) => ({
+        key,
+        label: key === "unknown" ? "Not recorded" : modelLabel(key),
+        avg: times.reduce((a, b) => a + b, 0) / times.length,
+        count: times.length,
+      }))
+      .sort((a, b) => a.avg - b.avg); // fastest first
+  }, [timedDocs, models]);
+
+  const maxAvgModelSpeed = useMemo(
+    () => Math.max(10, ...modelBreakdown.map((m) => m.avg)),
+    [modelBreakdown],
+  );
+
   // Breakdown by doc type
   const typeBreakdown = useMemo(() => {
     const types = ["invoice", "purchase_order", "receipt"] as const;
@@ -78,6 +120,10 @@ export default function PerformancePage() {
       // 2. Type filter
       const matchesType = typeFilter === "all" || d.docType === typeFilter;
 
+      // 2b. Model filter ("unknown" covers rows extracted before models were tracked)
+      const matchesModel =
+        modelFilter === "all" || (d.model ?? "unknown") === modelFilter;
+
       // 3. Speed filter
       let matchesSpeed = true;
       if (speedFilter !== "all") {
@@ -92,9 +138,9 @@ export default function PerformancePage() {
         }
       }
 
-      return matchesSearch && matchesType && matchesSpeed;
+      return matchesSearch && matchesType && matchesModel && matchesSpeed;
     });
-  }, [docs, searchTerm, typeFilter, speedFilter]);
+  }, [docs, searchTerm, typeFilter, modelFilter, speedFilter]);
 
   // Helper to color-code processing time badges
   const getSpeedLabel = (time: number | null) => {
@@ -118,7 +164,7 @@ export default function PerformancePage() {
         <div>
           <h1 className="text-headline-lg text-text-primary">Model Performance</h1>
           <p className="mt-1 text-body-md text-on-surface-variant">
-            Analyze the latency and processing speed of the document extraction vision model.
+            Compare latency across the vision models used for document extraction.
           </p>
         </div>
         <button
@@ -185,6 +231,41 @@ export default function PerformancePage() {
       <div className="grid grid-cols-1 gap-gutter lg:grid-cols-3">
         {/* Breakdown by Type */}
         <div className="rounded-xl border border-border-base bg-surface-white p-5 shadow-sm lg:col-span-1">
+          {/* By model first: it moves latency far more than document layout does. */}
+          {modelBreakdown.length > 0 && (
+            <div className="mb-8">
+              <h3 className="text-headline-md text-text-primary">Breakdown by Model</h3>
+              <p className="text-body-sm text-on-surface-variant mb-4">
+                Average speed per extraction model, fastest first.
+              </p>
+              <div className="space-y-4 mt-6">
+                {modelBreakdown.map((m) => (
+                  <div key={m.key}>
+                    <div className="flex justify-between items-center text-body-sm mb-1.5">
+                      <span className="font-semibold text-text-primary truncate pr-2">{m.label}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-on-surface-variant text-xs">({m.count} docs)</span>
+                        <span className="mono text-secondary font-bold">{m.avg.toFixed(2)}s</span>
+                      </div>
+                    </div>
+                    <div className="h-3 w-full bg-surface-container rounded-full overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-secondary transition-all duration-500 ease-out"
+                        style={{ width: `${Math.max(8, Math.min(100, (m.avg / maxAvgModelSpeed) * 100))}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {modelBreakdown.length > 1 && (
+                <p className="mt-4 text-[12px] leading-relaxed text-on-surface-variant">
+                  The metric cards above average across <strong>all</strong> models — with more
+                  than one in use, compare the per-model figures here instead.
+                </p>
+              )}
+            </div>
+          )}
+
           <h3 className="text-headline-md text-text-primary">Breakdown by Doc Type</h3>
           <p className="text-body-sm text-on-surface-variant mb-4">
             Average extraction speeds compared by document layout.
@@ -252,7 +333,7 @@ export default function PerformancePage() {
           </div>
 
           {/* Filters Bar */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-surface-container-low p-3 rounded-lg border border-border-base/60">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 bg-surface-container-low p-3 rounded-lg border border-border-base/60">
             {/* Search Input */}
             <div className="relative">
               <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface-variant/70 text-lg">
@@ -278,6 +359,22 @@ export default function PerformancePage() {
                 <option value="invoice">Invoices</option>
                 <option value="purchase_order">Purchase Orders</option>
                 <option value="receipt">Receipts</option>
+              </select>
+            </div>
+
+            {/* Model Filter — isolate one model to compare like with like. */}
+            <div>
+              <select
+                value={modelFilter}
+                onChange={(e) => setModelFilter(e.target.value)}
+                aria-label="Filter by extraction model"
+                className="w-full h-9 px-2 rounded-lg border border-border-base bg-surface-white text-body-sm"
+              >
+                <option value="all">All Models</option>
+                {models.map((m) => (
+                  <option key={m.key} value={m.key}>{m.label}</option>
+                ))}
+                <option value="unknown">Not recorded</option>
               </select>
             </div>
 
@@ -308,6 +405,7 @@ export default function PerformancePage() {
                   <tr className="text-label-sm uppercase text-on-surface-variant border-b border-border-base/80">
                     <th className="py-2.5 font-semibold">Document Name</th>
                     <th className="py-2.5 font-semibold">Type</th>
+                    <th className="py-2.5 font-semibold">Model</th>
                     <th className="py-2.5 font-semibold">Extracted At</th>
                     <th className="py-2.5 font-semibold">Status</th>
                     <th className="py-2.5 font-semibold text-right">Speed</th>
@@ -332,6 +430,20 @@ export default function PerformancePage() {
                         </td>
                         <td className="py-3 text-body-sm text-on-surface-variant">
                           {DOC_TYPE_LABEL[d.docType]}
+                        </td>
+                        <td className="py-3 text-body-sm whitespace-nowrap">
+                          {d.model ? (
+                            <span className="rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-semibold text-text-primary">
+                              {modelLabel(d.model)}
+                            </span>
+                          ) : (
+                            <span
+                              className="text-on-surface-variant/60"
+                              title="Extracted before the model was recorded"
+                            >
+                              —
+                            </span>
+                          )}
                         </td>
                         <td className="py-3 text-body-sm text-on-surface-variant whitespace-nowrap">
                           {formatDateTime(d.uploadedAt)}

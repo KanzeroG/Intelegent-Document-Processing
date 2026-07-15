@@ -25,7 +25,7 @@ from pydantic import BaseModel
 
 from . import db, evaluation, export, rag
 from .auth import AuthUser, Role, authenticate, create_token, get_current_role, get_current_user
-from .extraction import ExtractionError, extract_document
+from .extraction import MODEL_PROFILES, ExtractionError, extract_document, get_profile
 from .loaders import load_document_as_base64_png
 from .schemas import Document, DocumentType, missing_fields
 from .validation import ValidationIssue, validate_document
@@ -123,13 +123,53 @@ def auth_me(user: AuthUser = Depends(get_current_user)) -> dict:
     return {"email": user.email, "role": user.role.value, "name": user.name}
 
 
+@app.get("/models")
+def list_models() -> list[dict]:
+    """Vision models /extract can be pointed at (for the upload-page picker).
+
+    `configured` is False when a profile needs an API key that isn't set, so the
+    picker can disable it instead of failing at extraction time. `remote` marks
+    models that send documents off this machine.
+
+    The `default_*` flags report which profile each surface falls back to
+    (DEFAULT_MODEL / CHAT_MODEL). Without them a picker would have to guess a
+    default, and by always sending it explicitly would render those env vars
+    dead. Never returns key material.
+    """
+    return [
+        {
+            "key": p.key,
+            "label": p.label,
+            "model": p.model,
+            "configured": p.configured,
+            "remote": p.remote,
+            "default_extract": p.key == get_profile(None).key,
+            "default_chat": p.key == get_profile(rag.CHAT_PROFILE).key,
+        }
+        for p in MODEL_PROFILES.values()
+    ]
+
+
 @app.post("/extract")
 async def extract(
     file: UploadFile = File(...),
     doc_type: DocumentType = Form(DocumentType.INVOICE),
+    model: str | None = Form(None),
     user: AuthUser = Depends(get_current_user),
 ) -> dict:
-    """Load an uploaded document, extract + validate, persist, and return the record."""
+    """Load an uploaded document, extract + validate, persist, and return the record.
+
+    `model` selects a vision model by MODEL_PROFILES key (e.g. "minicpm"); omitted
+    means the default. An unknown key is rejected rather than silently falling
+    back, so a typo in an A/B run can't be mistaken for a result from the model
+    you meant to test.
+    """
+    if model is not None and model not in MODEL_PROFILES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown model '{model}'. Available: {', '.join(MODEL_PROFILES)}.",
+        )
+
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
@@ -142,7 +182,7 @@ async def extract(
     import time
     start_time = time.perf_counter()
     try:
-        document = extract_document(image_b64, doc_type)
+        document = extract_document(image_b64, doc_type, model=model)
     except ExtractionError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     duration = time.perf_counter() - start_time
@@ -155,11 +195,18 @@ async def extract(
     rec["uploaded_at"] = date.today().isoformat()
     rec["uploaded_by"] = user.email  # None for tokenless (X-Role fallback) callers
     rec["processing_time"] = duration
+    # Record which model produced this extraction — without it an A/B run can't
+    # be attributed after the fact.
+    profile = get_profile(model)
+    rec["model"] = profile.key
 
     db.insert_document(rec, raw)  # cache the extraction + original file
     db.add_audit(
         actor=user.email, role=user.role.value, action="upload", doc_id=rec["id"],
-        detail=f"Extracted '{file.filename}' as {doc_type.value} -> {rec['status']}.",
+        detail=(
+            f"Extracted '{file.filename}' as {doc_type.value} -> {rec['status']} "
+            f"via {profile.label} in {duration:.1f}s."
+        ),
     )
     return {k: v for k, v in rec.items() if k != "file"}
 
@@ -451,6 +498,7 @@ def patch_document(doc_id: str, body: PatchBody, user: AuthUser = Depends(get_cu
 class ChatRequest(BaseModel):
     question: str
     doc_id: str | None = None
+    model: str | None = None  # MODEL_PROFILES key; None = the configured default
 
 
 class ChatCitation(BaseModel):
@@ -470,10 +518,19 @@ def chat(body: ChatRequest, user: AuthUser = Depends(get_current_user)) -> ChatR
     With doc_id: that document's full JSON is the context. Without: the top
     embedding matches across all visible documents are. `user`-role callers are
     scoped to their own uploads, same as GET /documents.
+
+    `model` picks a vision/chat model by MODEL_PROFILES key; omitted uses the
+    configured chat default (local qwen), so answering never leaves this machine
+    unless asked to. An unknown key is rejected rather than silently falling back.
     """
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question is empty.")
+    if body.model is not None and body.model not in MODEL_PROFILES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown model '{body.model}'. Available: {', '.join(MODEL_PROFILES)}.",
+        )
 
     visible = db.list_documents(uploaded_by=user.email if _is_scoped_user(user) else None)
     target = None
@@ -483,7 +540,7 @@ def chat(body: ChatRequest, user: AuthUser = Depends(get_current_user)) -> ChatR
             raise HTTPException(status_code=404, detail="Document not found.")
 
     try:
-        answer, citations = rag.answer_question(question, visible, target)
+        answer, citations = rag.answer_question(question, visible, target, model=body.model)
     except rag.ChatError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return ChatResponse(

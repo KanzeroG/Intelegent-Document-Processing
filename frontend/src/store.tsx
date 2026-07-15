@@ -67,6 +67,7 @@ export interface DocRecord {
   previewUrl: string;
   confidence: number;
   processingTime: number | null;
+  model: string | null; // which vision model extracted this
 }
 
 export function toRecord(r: DocumentRecord): DocRecord {
@@ -83,6 +84,7 @@ export function toRecord(r: DocumentRecord): DocRecord {
     previewUrl: fileUrl(r.id),
     confidence: r.confidence,
     processingTime: r.processing_time ?? null,
+    model: r.model ?? null,
   };
 }
 

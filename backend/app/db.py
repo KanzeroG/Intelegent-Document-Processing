@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS documents (
     issues       TEXT,   -- JSON list of ValidationIssue
     uploaded_by  TEXT,   -- email of the signed-in uploader; NULL for tokenless calls
     processing_time REAL, -- model processing speed in seconds
+    model        TEXT,   -- extraction model profile key (see extraction.MODEL_PROFILES)
     file         BLOB
 );
 """
@@ -85,7 +86,7 @@ _DEFAULT_USERS = {
 # Columns returned to the frontend (everything except the file blob).
 _META_COLS = (
     "id, doc_number, doc_type, filename, mime, uploaded_at, status, confidence, "
-    "data, issues, uploaded_by, processing_time"
+    "data, issues, uploaded_by, processing_time, model"
 )
 
 
@@ -122,6 +123,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE documents ADD COLUMN uploaded_by TEXT")
         if "processing_time" not in cols:
             conn.execute("ALTER TABLE documents ADD COLUMN processing_time REAL")
+        if "model" not in cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN model TEXT")
 
 
 def _row_to_record(row: sqlite3.Row) -> dict[str, Any]:
@@ -139,6 +142,7 @@ def _row_to_record(row: sqlite3.Row) -> dict[str, Any]:
         "issues": json.loads(row["issues"]) if row["issues"] else [],
         "uploaded_by": row["uploaded_by"],
         "processing_time": row["processing_time"],
+        "model": row["model"],
     }
 
 
@@ -148,7 +152,8 @@ def insert_document(rec: dict[str, Any], file_bytes: bytes) -> None:
         conn.execute(
             f"INSERT INTO documents ({_META_COLS}, file) "
             "VALUES (:id, :doc_number, :doc_type, :filename, :mime, :uploaded_at, "
-            ":status, :confidence, :data, :issues, :uploaded_by, :processing_time, :file)",
+            ":status, :confidence, :data, :issues, :uploaded_by, :processing_time, "
+            ":model, :file)",
             {
                 "id": rec["id"],
                 "doc_number": rec.get("doc_number"),
@@ -162,6 +167,7 @@ def insert_document(rec: dict[str, Any], file_bytes: bytes) -> None:
                 "issues": json.dumps(rec.get("issues", [])),
                 "uploaded_by": rec.get("uploaded_by"),
                 "processing_time": rec.get("processing_time"),
+                "model": rec.get("model"),
                 "file": file_bytes,
             },
         )

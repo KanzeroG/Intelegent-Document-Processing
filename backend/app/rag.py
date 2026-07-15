@@ -27,11 +27,20 @@ import math
 import threading
 from typing import Any
 
+import os
+
 import httpx
 
-from .extraction import LM_STUDIO_URL, MODEL_NAME
+from .extraction import LM_STUDIO_URL, ModelProfile, get_profile
 
-# LM_STUDIO_URL is the full /chat/completions URL; embeddings live one path over.
+# Default profile for chat, by MODEL_PROFILES key. Callers may override per
+# request. Defaults to qwen: the Assistant is a local, on-premise feature, and an
+# extraction-time choice should not silently become a chat-time one.
+CHAT_PROFILE = os.getenv("CHAT_MODEL", "qwen")
+
+# Embeddings are pinned to LM Studio regardless of the chat profile: the model
+# below is loaded there specifically, and a hosted chat profile has no endpoint
+# serving it. (Only used above _MAX_CONTEXT_DOCS — see below.)
 _EMBED_URL = LM_STUDIO_URL.rsplit("/chat/completions", 1)[0] + "/embeddings"
 _EMBED_MODEL = "text-embedding-nomic-embed-text-v1.5"
 _TIMEOUT = 120.0
@@ -137,9 +146,14 @@ def _top_documents(question: str, records: list[dict[str, Any]]) -> list[dict[st
     return ranked[:_TOP_K]
 
 
-def _chat(system: str, user_msg: str) -> str:
-    payload = {
-        "model": MODEL_NAME,
+def _chat(system: str, user_msg: str, profile: ModelProfile) -> str:
+    if not profile.configured:
+        raise ChatError(
+            f"{profile.label} needs an API key. Set {profile.api_key_env} in "
+            "backend/.env and restart the backend."
+        )
+    payload: dict[str, Any] = {
+        "model": profile.model,
         "temperature": 0.1,
         "max_tokens": 500,
         "messages": [
@@ -147,13 +161,22 @@ def _chat(system: str, user_msg: str) -> str:
             {"role": "user", "content": user_msg},
         ],
     }
+    if profile.reasoning_effort:
+        payload["reasoning_effort"] = profile.reasoning_effort
     try:
-        resp = httpx.post(LM_STUDIO_URL, json=payload, timeout=_TIMEOUT)
+        resp = httpx.post(
+            profile.url, json=payload, headers=profile.auth_headers(), timeout=_TIMEOUT
+        )
         resp.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise ChatError(
+            f"{profile.label} rejected the request ({exc.response.status_code}): "
+            f"{exc.response.text[:200]}"
+        ) from exc
     except httpx.HTTPError as exc:
         raise ChatError(
-            f"Could not reach the local model — is LM Studio running with "
-            f"'{MODEL_NAME}' loaded? ({exc})"
+            f"Could not reach the chat model — is {profile.label} available with "
+            f"'{profile.model}' loaded? ({exc})"
         ) from exc
     return resp.json()["choices"][0]["message"]["content"] or ""
 
@@ -198,14 +221,17 @@ def answer_question(
     question: str,
     records: list[dict[str, Any]],
     target: dict[str, Any] | None = None,
+    model: str | None = None,
 ) -> tuple[str, list[dict[str, str | None]]]:
     """Answer a question over extracted documents.
 
     `records` is the caller-visible corpus (already role-filtered by the
     route). When `target` is set the question is about that one document and
     its full JSON goes into the prompt; otherwise the top retrieved summaries
-    do. Returns (answer, citations).
+    do. `model` is a MODEL_PROFILES key; None uses CHAT_PROFILE. Returns
+    (answer, citations).
     """
+    profile = get_profile(model or CHAT_PROFILE)
     with _lock:
         if target is not None:
             context_docs = [target]
@@ -234,5 +260,7 @@ def answer_question(
             context_docs = _top_documents(question, records)
             context = "\n".join(f"- {summarize_record(rec)}" for rec in context_docs)
 
-        answer = _chat(_SYSTEM_PROMPT, f"Document data:\n{context}\n\nQuestion: {question}")
+        answer = _chat(
+            _SYSTEM_PROMPT, f"Document data:\n{context}\n\nQuestion: {question}", profile
+        )
         return answer, _citations(answer, context_docs)

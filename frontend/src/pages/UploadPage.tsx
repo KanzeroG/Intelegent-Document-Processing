@@ -11,8 +11,10 @@ import {
   exportAllUrl,
   downloadFile,
   downloadSelectedCsv,
+  listModels,
   type DocStatus,
   type DocType,
+  type ModelOption,
 } from "../api";
 import { useAuth, useDocuments } from "../store";
 import StatusBadge from "../components/StatusBadge";
@@ -48,6 +50,31 @@ export default function UploadPage() {
   const [dragActive, setDragActive] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Extraction model. Empty string = whatever the backend defaults to, so the
+  // picker never has to hard-code which model that is.
+  const [models, setModels] = useState<ModelOption[]>([]);
+  const [model, setModel] = useState("");
+
+  useEffect(() => {
+    // A failure here is non-fatal: the picker just stays hidden and extraction
+    // uses the backend default, exactly as it did before this existed.
+    listModels()
+      .then((m) => {
+        setModels(m);
+        // Preselect the backend's own default (DEFAULT_MODEL) rather than
+        // guessing, so .env stays authoritative. Fall back to any usable model —
+        // never one whose API key is missing, or the first extraction would fail
+        // for no clear reason.
+        setModel(
+          (cur) =>
+            cur || m.find((x) => x.default_extract)?.key || m.find((x) => x.configured)?.key || "",
+        );
+      })
+      .catch(() => setModels([]));
+  }, []);
+
+  const activeModel = models.find((m) => m.key === model);
 
   const loading = progress !== null;
   // Staff/admin see everyone's documents, so show who uploaded each one and
@@ -173,7 +200,7 @@ export default function UploadPage() {
       const s = staged[i];
       setProgress({ done: i, total: staged.length, current: s.file.name });
       try {
-        addRecord(await extractDocument(s.file, s.docType));
+        addRecord(await extractDocument(s.file, s.docType, model || undefined));
         ok += 1;
       } catch (e) {
         toast.error(`${s.file.name}: ${e instanceof Error ? e.message : "failed"}`);
@@ -307,6 +334,36 @@ export default function UploadPage() {
         {/* Processing settings */}
         <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
           <h3 className="text-headline-md text-text-primary">Processing Settings</h3>
+
+          {/* Model picker. Hidden when /models is unreachable — extraction then
+              falls back to the backend default. */}
+          {models.length > 0 && (
+            <label className="mt-4 block">
+              <span className="text-label-md text-on-surface-variant">Extraction Model</span>
+              <select
+                value={model}
+                disabled={loading}
+                onChange={(e) => setModel(e.target.value)}
+                aria-label="Extraction model"
+                className="mt-1.5 h-10 w-full rounded-lg border border-border-base bg-surface-white px-3 text-body-md text-text-primary focus:border-secondary focus:outline-none disabled:opacity-50"
+              >
+                {models.map((m) => (
+                  <option key={m.key} value={m.key} disabled={!m.configured}>
+                    {m.label}
+                    {!m.configured ? " — API key needed" : ""}
+                  </option>
+                ))}
+              </select>
+              {/* Hosted models send the document off this machine — say so, since
+                  on-premise privacy is part of this project's pitch. */}
+              {activeModel?.remote && (
+                <span className="mt-1.5 flex gap-1.5 text-body-sm text-status-review">
+                  <span className="material-symbols-outlined text-base">cloud_upload</span>
+                  Documents are sent to a hosted API, not processed on this machine.
+                </span>
+              )}
+            </label>
+          )}
 
           <label className="mt-4 block">
             <span className="text-label-md text-on-surface-variant">Extraction Language</span>

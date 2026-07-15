@@ -53,6 +53,18 @@ export interface DocumentRecord {
   issues: ValidationIssue[];
   uploaded_by: string | null;
   processing_time?: number | null;
+  model?: string | null; // extraction model profile key ("qwen" | "minicpm")
+}
+
+// A vision model the backend can extract with (from GET /models).
+export interface ModelOption {
+  key: string;
+  label: string;
+  model: string;
+  configured: boolean; // false => needs an API key that isn't set
+  remote: boolean; // true => documents are sent off-machine to a hosted API
+  default_extract: boolean; // backend's fallback for /extract
+  default_chat: boolean; // backend's fallback for /chat
 }
 
 // URL to the stored original file (for preview) — served by the backend.
@@ -113,11 +125,23 @@ export async function getMe(): Promise<{ email: string; role: Role; name: string
 
 // ---- Documents ----------------------------------------------------------------
 
+// Vision models available for extraction. Drives the upload page's picker, so
+// adding a model to the backend registry surfaces it in the UI automatically.
+export async function listModels(): Promise<ModelOption[]> {
+  return unwrap<ModelOption[]>(await fetch(`${API_BASE_URL}/models`, { headers: authHeaders() }));
+}
+
 // POST a document to /extract — extracts, validates, persists, returns the record.
-export async function extractDocument(file: File, docType: DocType): Promise<DocumentRecord> {
+// `model` picks a vision model by key; omitted means the backend default.
+export async function extractDocument(
+  file: File,
+  docType: DocType,
+  model?: string,
+): Promise<DocumentRecord> {
   const form = new FormData();
   form.append("file", file);
   form.append("doc_type", docType);
+  if (model) form.append("model", model);
   const res = await fetch(`${API_BASE_URL}/extract`, {
     method: "POST",
     headers: authHeaders(),
@@ -332,10 +356,15 @@ export interface ChatResponse {
 }
 
 // Ask a question about the extracted documents; scope to one doc via docId.
-export async function chat(question: string, docId?: string): Promise<ChatResponse> {
+// `model` picks a model by key; omitted uses the backend's chat default (local).
+export async function chat(
+  question: string,
+  docId?: string,
+  model?: string,
+): Promise<ChatResponse> {
   return unwrap(await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ question, doc_id: docId ?? null }),
+    body: JSON.stringify({ question, doc_id: docId ?? null, model: model ?? null }),
   }));
 }
