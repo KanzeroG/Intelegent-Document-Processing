@@ -1,16 +1,15 @@
-// Monitoring dashboard. Metric cards and the activity table are derived from
-// the document store; the "Model Accuracy" section shows the ground-truth
-// evaluation (deliverable #5) and the ROI calculator the business case
-// (deliverable #6, admin-only). Avg extraction confidence is a session
-// heuristic and is labelled as such — it is NOT the same number as accuracy.
+// Monitoring dashboard. Metric cards are derived from the document store; the
+// "Model Accuracy" section shows the ground-truth evaluation (deliverable #5)
+// and the ROI calculator the business case (deliverable #6, admin-only). Avg
+// extraction confidence is a session heuristic and is labelled as such — it is
+// NOT the same number as accuracy. (Per-action history lives on the dedicated
+// Audit Log page, so the dashboard does not repeat it.)
 
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import toast from "react-hot-toast";
 import { useAuth, useDocuments } from "../store";
-import StatusBadge from "../components/StatusBadge";
 import { runEval, getEvalStatus, type EvalStatus } from "../api";
-import { formatIDR, formatDateTime, docLabel, DOC_TYPE_LABEL } from "../lib/format";
+import { formatIDR, formatDateTime, DOC_TYPE_LABEL } from "../lib/format";
 
 export default function DashboardPage() {
   const { docs } = useDocuments();
@@ -268,41 +267,6 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Recent activity */}
-      <div className="mt-gutter">
-        <Card title="Recent Activity">
-          {docs.length === 0 ? (
-            <p className="text-body-sm text-on-surface-variant">No activity yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[480px] text-left text-body-sm">
-                <thead>
-                  <tr className="text-label-sm uppercase text-on-surface-variant">
-                    <th className="py-2">Doc ID</th>
-                    <th className="py-2">Type</th>
-                    <th className="py-2">Uploaded</th>
-                    <th className="py-2">Status</th>
-                    <th className="py-2 text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {docs.slice(0, 6).map((d) => (
-                    <tr key={d.id} className="border-t border-border-base">
-                      <td className="py-2 font-semibold text-secondary mono">
-                        <Link to={`/review/${encodeURIComponent(d.id)}`}>{docLabel(d)}</Link>
-                      </td>
-                      <td className="py-2 text-on-surface-variant">{DOC_TYPE_LABEL[d.docType]}</td>
-                      <td className="whitespace-nowrap py-2 text-on-surface-variant">{formatDateTime(d.uploadedAt)}</td>
-                      <td className="py-2"><StatusBadge status={d.status} /></td>
-                      <td className="py-2 text-right mono">{formatIDR(d.data.total_amount)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      </div>
     </div>
   );
 }
