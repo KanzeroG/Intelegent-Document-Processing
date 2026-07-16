@@ -28,3 +28,7 @@ data/eval_summary.json
 Thumbs.db
 .idea/
 .vscode/
+
+# Local agent customizations / skills
+.agents/
+
