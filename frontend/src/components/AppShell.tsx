@@ -1,17 +1,7 @@
-// App shell: navy sidebar (260px) + white topbar (64px), per the DocExtract
-// design system. At lg+ the sidebar is fixed; below lg it becomes an
-// off-canvas drawer behind a hamburger button. Page content renders through
-// <Outlet/>.
-//
-// Stacking order: page content (auto) < topbar (z-30) < drawer backdrop
-// (z-40, so it dims the topbar too) < sidebar/drawer (z-50) < toasts
-// (react-hot-toast default 9999).
-
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, useDocuments } from "../store";
 import { API_BASE_URL, type Role } from "../api";
-import { docLabel } from "../lib/format";
 
 const NAV: { to: string; label: string; icon: string; roles: Role[] }[] = [
   { to: "/upload", label: "Upload", icon: "upload_file", roles: ["user", "staff", "admin"] },
@@ -25,62 +15,44 @@ const NAV: { to: string; label: string; icon: string; roles: Role[] }[] = [
 
 export default function AppShell() {
   const { user, role, signOut } = useAuth();
-  const { docs, loadError, dismissError, reload } = useDocuments();
+  const { loadError, dismissError, reload } = useDocuments();
   const navigate = useNavigate();
   const location = useLocation();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const hamburgerRef = useRef<HTMLButtonElement>(null);
-  const firstNavRef = useRef<HTMLAnchorElement>(null);
+  const [isCollapsed, setIsCollapsed] = useState(false); // For desktop sidebar
+  const [profileOpen, setProfileOpen] = useState(false);
 
-  // Explicit closes (backdrop, Escape) hand focus back to the hamburger.
+  const hamburgerRef = useRef<HTMLButtonElement>(null);
+  const profileRef = useRef<HTMLDivElement>(null);
+
   function closeDrawer(returnFocus = false) {
     setDrawerOpen(false);
     if (returnFocus) hamburgerRef.current?.focus();
   }
 
-  // Navigating from a drawer link should also collapse it.
   useEffect(() => {
     setDrawerOpen(false);
   }, [location.pathname]);
 
-  // Keyboard support while the drawer is open: Escape closes, focus moves in.
+  // Handle clicking outside profile popover
   useEffect(() => {
-    if (!drawerOpen) return;
-    firstNavRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setDrawerOpen(false);
-        hamburgerRef.current?.focus();
+    function handleClickOutside(e: MouseEvent) {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileOpen(false);
       }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [drawerOpen]);
-
-  // Topbar title: the current page, so the bar's left half isn't empty.
-  function pageTitle(): string {
-    const p = location.pathname;
-    if (p.startsWith("/review/")) {
-      const id = decodeURIComponent(p.slice("/review/".length));
-      const doc = docs.find((d) => d.id === id);
-      return doc ? `Review › ${docLabel(doc)}` : "Review";
     }
-    if (p.startsWith("/review")) return "Review Queue";
-    if (p.startsWith("/upload")) return "Upload Documents";
-    if (p.startsWith("/dashboard")) return "Monitoring Dashboard";
-    if (p.startsWith("/chat")) return "Assistant";
-    if (p.startsWith("/audit")) return "Audit Log";
-    if (p.startsWith("/performance")) return "Model Performance";
-    if (p.startsWith("/admin/settings")) return "Settings";
-    return "DocExtract";
-  }
+    if (profileOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [profileOpen]);
 
   const visibleNav = NAV.filter((item) => role && item.roles.includes(role));
 
+  const sidebarWidth = isCollapsed ? "w-[72px]" : "w-[260px]";
+
   return (
-    <div className="flex min-h-screen bg-background text-on-background">
-      {/* Drawer backdrop (mobile only) */}
+    <div className="flex h-screen bg-surface-white text-on-background overflow-hidden">
+      {/* Mobile Drawer Backdrop */}
       {drawerOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/40 lg:hidden"
@@ -89,100 +61,118 @@ export default function AppShell() {
         />
       )}
 
-      {/* Sidebar / off-canvas drawer */}
+      {/* Floating Mobile Hamburger */}
+      {!drawerOpen && (
+        <button
+          ref={hamburgerRef}
+          onClick={() => setDrawerOpen(true)}
+          className="fixed left-4 top-4 z-30 grid h-10 w-10 place-items-center rounded-full bg-surface-container-low text-on-surface-variant shadow-sm hover:bg-surface-container lg:hidden"
+        >
+          <span className="material-symbols-outlined">menu</span>
+        </button>
+      )}
+
+      {/* Sidebar (Desktop Collapsible, Mobile Drawer) */}
       <aside
         aria-label="Main navigation"
         className={[
-          "fixed left-0 top-0 z-50 flex h-screen w-sidebar-width flex-col bg-primary p-4 text-white",
-          "transition-transform duration-200 lg:translate-x-0",
+          "fixed left-0 top-0 z-50 flex h-screen flex-col bg-surface-container-low transition-all duration-300 lg:relative lg:translate-x-0 border-r border-border-base",
+          sidebarWidth,
           drawerOpen ? "translate-x-0" : "-translate-x-full",
         ].join(" ")}
       >
-        <div className="flex items-center gap-3 px-2 py-4">
-          <span className="material-symbols-outlined text-3xl text-inverse-primary">
-            description
-          </span>
-          <div className="leading-tight">
-            <div className="text-lg font-bold">DocExtract</div>
-            <div className="text-[10px] uppercase tracking-widest text-white/60">
-              Intelligent Processing
+        <div className={`flex items-center ${isCollapsed ? "justify-center" : "gap-3 px-4"} py-4 h-16`}>
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors lg:flex hidden"
+            title="Toggle Menu"
+          >
+            <span className="material-symbols-outlined">menu</span>
+          </button>
+          
+          {/* Mobile close button inside drawer */}
+          <button
+            onClick={() => closeDrawer()}
+            className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors lg:hidden"
+          >
+            <span className="material-symbols-outlined">menu_open</span>
+          </button>
+
+          {!isCollapsed && (
+            <div className="leading-tight overflow-hidden text-primary whitespace-nowrap">
+              <div className="text-lg font-bold">DocExtract</div>
             </div>
-          </div>
+          )}
         </div>
 
-        <nav className="mt-6 flex flex-1 flex-col gap-1">
-          {visibleNav.map((item, i) => (
+        <nav className="mt-4 flex flex-1 flex-col gap-1 px-3 overflow-y-auto overflow-x-hidden">
+          {visibleNav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
-              ref={i === 0 ? firstNavRef : undefined}
+              title={isCollapsed ? item.label : undefined}
               className={({ isActive }) =>
                 [
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-body-md font-semibold transition-colors",
+                  "flex items-center gap-3 rounded-full py-2.5 transition-colors whitespace-nowrap",
+                  isCollapsed ? "justify-center px-0 w-10 h-10 mx-auto" : "px-4",
                   isActive
-                    ? "bg-secondary text-white"
-                    : "text-white/80 hover:bg-white/5 hover:text-white",
+                    ? "bg-secondary-container text-on-secondary-container font-semibold"
+                    : "text-on-surface-variant hover:bg-surface-container",
                 ].join(" ")
               }
             >
-              <span className="material-symbols-outlined text-xl">{item.icon}</span>
-              {item.label}
+              <span className="material-symbols-outlined text-[22px]">{item.icon}</span>
+              {!isCollapsed && <span>{item.label}</span>}
             </NavLink>
           ))}
         </nav>
 
-        <button
-          onClick={() => {
-            signOut();
-            navigate("/login");
-          }}
-          className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-body-md text-white/80 transition-colors hover:bg-white/5 hover:text-white"
-        >
-          <span className="material-symbols-outlined text-xl">logout</span>
-          Sign out
-        </button>
-      </aside>
-
-      {/* Main column — full width below lg, offset by the fixed sidebar at lg+ */}
-      <div className="flex min-w-0 flex-1 flex-col lg:ml-sidebar-width">
-        <header className="sticky top-0 z-30 flex h-topbar-height items-center justify-between gap-4 border-b border-border-base bg-surface-white px-gutter">
-          <div className="flex min-w-0 items-center gap-2">
-            <button
-              ref={hamburgerRef}
-              onClick={() => setDrawerOpen(true)}
-              aria-label="Open navigation"
-              aria-expanded={drawerOpen}
-              className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-on-surface-variant hover:bg-surface-container lg:hidden"
-            >
-              <span className="material-symbols-outlined">menu</span>
-            </button>
-            <h1 className="truncate text-body-lg font-semibold text-text-primary">{pageTitle()}</h1>
-          </div>
-
-          <div className="flex shrink-0 items-center gap-4">
-            <button
-              className="material-symbols-outlined text-on-surface-variant"
-              aria-label="Notifications"
-            >
-              notifications
-            </button>
-            <div className="hidden text-right sm:block">
-              <div className="text-body-sm font-semibold text-text-primary">
-                {user?.name ?? "—"}
+        {/* Profile Bottom Section */}
+        <div className="p-3 relative" ref={profileRef}>
+          {profileOpen && (
+            <div className="absolute bottom-full left-3 mb-2 w-56 rounded-2xl bg-surface-white p-2 shadow-lg border border-border-base z-50">
+              <div className="px-3 py-3 border-b border-border-base mb-2">
+                <div className="font-semibold text-text-primary truncate">{user?.name ?? "—"}</div>
+                <div className="text-xs text-on-surface-variant uppercase mt-0.5">{role}</div>
               </div>
-              <div className="text-label-sm uppercase text-on-surface-variant">{role}</div>
+              <button
+                onClick={() => {
+                  signOut();
+                  navigate("/login");
+                }}
+                className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-status-error hover:bg-status-error/10 transition-colors"
+              >
+                <span className="material-symbols-outlined text-[18px]">logout</span>
+                Sign out
+              </button>
             </div>
-            <div className="grid h-9 w-9 place-items-center rounded-full bg-primary-container text-sm font-semibold text-white">
+          )}
+          
+          <button
+            onClick={() => setProfileOpen(!profileOpen)}
+            className={[
+              "flex items-center rounded-full hover:bg-surface-container transition-colors",
+              isCollapsed ? "justify-center w-10 h-10 mx-auto" : "gap-3 p-2 w-full text-left"
+            ].join(" ")}
+          >
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-primary-container text-sm font-semibold text-on-primary-container">
               {(user?.name ?? "?").charAt(0).toUpperCase()}
             </div>
-          </div>
-        </header>
+            {!isCollapsed && (
+              <div className="flex-1 truncate">
+                <div className="text-sm font-semibold text-text-primary truncate">{user?.name ?? "—"}</div>
+              </div>
+            )}
+          </button>
+        </div>
+      </aside>
 
-        {/* Backend connectivity banner (document list failed to load). */}
+      {/* Main Content Area */}
+      <div className="flex min-w-0 flex-1 flex-col relative h-full">
         {loadError && (
           <div
             role="alert"
-            className="flex items-center gap-3 border-b border-status-warning/30 bg-status-warning/10 px-gutter py-2.5 text-body-sm text-status-warning"
+            className="flex items-center gap-3 border-b border-status-warning/30 bg-status-warning/10 px-gutter py-2.5 text-body-sm text-status-warning z-20"
           >
             <span className="material-symbols-outlined text-base shrink-0">cloud_off</span>
             <span className="min-w-0 flex-1 truncate">
@@ -201,7 +191,7 @@ export default function AppShell() {
           </div>
         )}
 
-        <main className="flex-1 overflow-y-auto p-gutter">
+        <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>

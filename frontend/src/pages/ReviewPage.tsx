@@ -14,6 +14,7 @@ import {
   exportJsonUrl,
   exportCsvUrl,
   downloadFile,
+  deleteDocument,
   type ExtractedDocument,
   type LineItem,
 } from "../api";
@@ -130,7 +131,8 @@ export default function ReviewPage() {
 
 function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
   const navigate = useNavigate();
-  const { replaceRecord } = useDocuments();
+  const { replaceRecord, reload } = useDocuments();
+  const { role } = useAuth();
 
   const [form, setForm] = useState<ExtractedDocument>(rec.data);
   const [rowKeys, setRowKeys] = useState<string[]>(() => rec.data.line_items.map(newRowKey));
@@ -269,6 +271,21 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
       navigate("/upload");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Reject failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm(`Are you sure you want to permanently delete document "${rec.fileName}"?`)) return;
+    setBusy(true);
+    try {
+      await deleteDocument(rec.id);
+      toast.success("Document deleted");
+      navigate("/upload"); // Go back to queue or upload page
+      await reload(); // Assuming store exposes reload
+    } catch (e) {
+      toast.error("Failed to delete document");
     } finally {
       setBusy(false);
     }
@@ -500,10 +517,19 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
             </div>
             {canEdit && (
               <div className="flex flex-wrap items-center gap-3">
+                {role === "admin" && (
+                  <button
+                    onClick={handleDelete}
+                    disabled={busy}
+                    className="flex items-center gap-1 rounded-lg border border-status-error/30 bg-status-error/10 px-4 py-2.5 font-semibold text-status-error hover:bg-status-error/20 disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-base">delete</span> Delete
+                  </button>
+                )}
                 <button
                   onClick={reject}
                   disabled={busy}
-                  className="flex items-center gap-1 rounded-lg border border-status-error px-4 py-2.5 font-semibold text-status-error disabled:opacity-50"
+                  className="flex items-center gap-1 rounded-lg border border-status-error px-4 py-2.5 font-semibold text-status-error hover:bg-status-error/5 disabled:opacity-50"
                 >
                   <span className="material-symbols-outlined text-base">cancel</span> Reject
                 </button>

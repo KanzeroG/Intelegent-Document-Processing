@@ -146,20 +146,22 @@ def _top_documents(question: str, records: list[dict[str, Any]]) -> list[dict[st
     return ranked[:_TOP_K]
 
 
-def _chat(system: str, user_msg: str, profile: ModelProfile) -> str:
+def _chat(system: str, user_msg: str, profile: ModelProfile, history: list[dict[str, str]] | None = None) -> str:
     if not profile.configured:
         raise ChatError(
             f"{profile.label} needs an API key. Set {profile.api_key_env} in "
             "backend/.env and restart the backend."
         )
+    messages = [{"role": "system", "content": system}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": user_msg})
+
     payload: dict[str, Any] = {
         "model": profile.model,
         "temperature": 0.1,
         "max_tokens": 500,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_msg},
-        ],
+        "messages": messages,
     }
     if profile.reasoning_effort:
         payload["reasoning_effort"] = profile.reasoning_effort
@@ -187,8 +189,9 @@ _SYSTEM_PROMPT = (
     "receipts; all amounts are whole Indonesian Rupiah integers). Answer ONLY "
     "from the document data provided below — never invent documents or figures. "
     "Cite document numbers when you refer to specific documents. If the answer "
-    "is not in the provided data, say so plainly. Be concise: give the final "
-    "answer directly — do not narrate step-by-step reasoning or self-corrections. "
+    "is not in the provided data, output exactly: 'Saya tidak menemukan informasi tersebut dalam dokumen'. "
+    "DO NOT start your response with 'Based on the context' or 'Here is the answer'. "
+    "Be concise: give the final answer directly — do not narrate step-by-step reasoning or self-corrections. "
     "Treat repeated document numbers as the same document (count each once)."
 )
 
@@ -222,6 +225,7 @@ def answer_question(
     records: list[dict[str, Any]],
     target: dict[str, Any] | None = None,
     model: str | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> tuple[str, list[dict[str, str | None]]]:
     """Answer a question over extracted documents.
 
@@ -261,6 +265,20 @@ def answer_question(
             context = "\n".join(f"- {summarize_record(rec)}" for rec in context_docs)
 
         answer = _chat(
-            _SYSTEM_PROMPT, f"Document data:\n{context}\n\nQuestion: {question}", profile
+            _SYSTEM_PROMPT, f"Document data:\n{context}\n\nQuestion: {question}", profile, history
         )
         return answer, _citations(answer, context_docs)
+
+def generate_chat_title(question: str, model: str | None = None) -> str:
+    """Generate a short 3-5 word title for a chat session based on the first question."""
+    profile = get_profile(model or CHAT_PROFILE)
+    prompt = (
+        "Generate a concise, 3 to 5 word descriptive title for this conversation based on the user's first question. "
+        "Do not use quotes or any other formatting. Only output the title string itself."
+    )
+    with _lock:
+        try:
+            return _chat(prompt, question, profile).strip(' ".\'\n')
+        except ChatError:
+            return question[:30] + "..."
+

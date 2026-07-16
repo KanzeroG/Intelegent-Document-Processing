@@ -275,6 +275,14 @@ export async function patchDocument(
   return unwrap<DocumentRecord>(res);
 }
 
+export async function deleteDocument(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/documents/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  await unwrap<{ deleted: boolean }>(res);
+}
+
 // ---- Audit trail (admin) -----------------------------------------------------
 
 export interface AuditEntry {
@@ -353,7 +361,36 @@ export interface ChatCitation {
 export interface ChatResponse {
   answer: string;
   citations: ChatCitation[];
+  session_id: string;
 }
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  scope_doc_id: string | null;
+}
+
+export interface ChatSessionDetails extends ChatSession {
+  messages: { role: string; content: string }[];
+}
+
+export async function listChatSessions(): Promise<ChatSession[]> {
+  return unwrap(await fetch(`${API_BASE_URL}/chat/sessions`, { headers: authHeaders() }));
+}
+
+export async function getChatSession(id: string): Promise<ChatSessionDetails> {
+  return unwrap(await fetch(`${API_BASE_URL}/chat/sessions/${encodeURIComponent(id)}`, { headers: authHeaders() }));
+}
+
+export async function deleteChatSession(id: string): Promise<{ deleted: boolean }> {
+  return unwrap(await fetch(`${API_BASE_URL}/chat/sessions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  }));
+}
+
 
 // Ask a question about the extracted documents; scope to one doc via docId.
 // `model` picks a model by key; omitted uses the backend's chat default (local).
@@ -361,10 +398,12 @@ export async function chat(
   question: string,
   docId?: string,
   model?: string,
+  history?: { role: string; content: string }[],
+  sessionId?: string
 ): Promise<ChatResponse> {
   return unwrap(await fetch(`${API_BASE_URL}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ question, doc_id: docId ?? null, model: model ?? null }),
+    body: JSON.stringify({ question, doc_id: docId ?? null, model: model ?? null, history: history ?? null, session_id: sessionId ?? null }),
   }));
 }

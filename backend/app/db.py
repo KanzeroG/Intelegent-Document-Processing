@@ -71,6 +71,18 @@ CREATE TABLE IF NOT EXISTS settings (
 );
 """
 
+_CHAT_SESSIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id           TEXT PRIMARY KEY,
+    title        TEXT,
+    user_email   TEXT,
+    created_at   TEXT,
+    updated_at   TEXT,
+    scope_doc_id TEXT,
+    messages     TEXT
+);
+"""
+
 _DEFAULT_SETTINGS = {
     "ppn_rate": "0.11",
     "reconcile_tolerance": "1",
@@ -103,6 +115,7 @@ def init_db() -> None:
         conn.execute(_AUDIT_SCHEMA)
         conn.execute(_USERS_SCHEMA)
         conn.execute(_SETTINGS_SCHEMA)
+        conn.execute(_CHAT_SESSIONS_SCHEMA)
         
         # Populate default settings if empty
         for k, v in _DEFAULT_SETTINGS.items():
@@ -192,6 +205,14 @@ def get_document(doc_id: str) -> dict[str, Any] | None:
             f"SELECT {_META_COLS} FROM documents WHERE id = ?", (doc_id,)
         ).fetchone()
     return _row_to_record(row) if row else None
+
+
+def delete_document(doc_id: str) -> bool:
+    """Delete a document and its data completely. Returns True if deleted."""
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def get_file(doc_id: str) -> tuple[bytes, str, str] | None:
@@ -354,3 +375,62 @@ def update_settings(settings: dict[str, Any]) -> None:
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                 (k, str(v))
             )
+
+# --- chat sessions -----------------------------------------------------------
+
+def create_chat_session(session_id: str, title: str, user_email: str, scope_doc_id: str | None, messages: list[dict[str, Any]]) -> None:
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO chat_sessions (id, title, user_email, created_at, updated_at, scope_doc_id, messages) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (session_id, title, user_email, now, now, scope_doc_id, json.dumps(messages))
+        )
+
+def get_chat_sessions(user_email: str) -> list[dict[str, Any]]:
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, title, created_at, updated_at, scope_doc_id FROM chat_sessions "
+            "WHERE user_email = ? ORDER BY updated_at DESC",
+            (user_email,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+def get_chat_session(session_id: str, user_email: str) -> dict[str, Any] | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id, title, created_at, updated_at, scope_doc_id, messages FROM chat_sessions "
+            "WHERE id = ? AND user_email = ?",
+            (session_id, user_email)
+        ).fetchone()
+    if not row:
+        return None
+    rec = dict(row)
+    rec["messages"] = json.loads(rec["messages"]) if rec["messages"] else []
+    return rec
+
+def update_chat_session(session_id: str, user_email: str, messages: list[dict[str, Any]], title: str | None = None) -> bool:
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    
+    sets = ["updated_at = ?", "messages = ?"]
+    params = [now, json.dumps(messages)]
+    
+    if title is not None:
+        sets.append("title = ?")
+        params.append(title)
+        
+    params.extend([session_id, user_email])
+    
+    with _connect() as conn:
+        cur = conn.execute(
+            f"UPDATE chat_sessions SET {', '.join(sets)} WHERE id = ? AND user_email = ?",
+            tuple(params)
+        )
+        return cur.rowcount > 0
+
+def delete_chat_session(session_id: str, user_email: str) -> bool:
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM chat_sessions WHERE id = ? AND user_email = ?", (session_id, user_email))
+        return cur.rowcount > 0

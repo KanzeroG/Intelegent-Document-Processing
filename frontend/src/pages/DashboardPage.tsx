@@ -290,24 +290,11 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-// Cost-benefit / ROI calculator (deliverable #6). Editable assumptions; the
-// "needs review" fraction is driven by the real evaluation when available.
-function ROICard({ needsReviewFraction }: { needsReviewFraction: number }) {
-  const [volume, setVolume] = useState(1000); // docs / month
-  const [manualMin, setManualMin] = useState(6); // minutes to key one doc manually
-  const [rate, setRate] = useState(50000); // reviewer cost, IDR / hour
-  const [reviewMin, setReviewMin] = useState(3); // minutes to review one flagged doc
-  const [implCost, setImplCost] = useState(15000000); // one-time setup, IDR
-
-  const manualCost = volume * (manualMin / 60) * rate;
-  const reviewedDocs = volume * needsReviewFraction;
-  const autoCost = reviewedDocs * (reviewMin / 60) * rate; // only flagged docs need a human
-  const savings = manualCost - autoCost;
-  const savingsPct = manualCost > 0 ? (savings / manualCost) * 100 : 0;
-  const paybackMonths = savings > 0 ? implCost / savings : Infinity;
-  const max = Math.max(manualCost, autoCost, 1);
-
-  const Row = ({ label, amount, cls }: { label: string; amount: number; cls: string }) => (
+// Defined at module scope, NOT inside ROICard: a component declared inside
+// another is a new type on every render, so React remounts it and the field
+// loses focus after each keystroke.
+function RoiRow({ label, amount, max, cls }: { label: string; amount: number; max: number; cls: string }) {
+  return (
     <div className="mb-3">
       <div className="flex justify-between text-body-sm text-on-surface-variant">
         <span>{label}</span>
@@ -318,42 +305,109 @@ function ROICard({ needsReviewFraction }: { needsReviewFraction: number }) {
       </div>
     </div>
   );
+}
 
-  const Input = ({ label, value, set, step = 1 }: { label: string; value: number; set: (n: number) => void; step?: number }) => (
+function RoiInput({
+  label, value, set, step = 1, min, max, suffix,
+}: {
+  label: string; value: number; set: (n: number) => void;
+  step?: number; min?: number; max?: number; suffix?: string;
+}) {
+  return (
     <label className="block">
       <span className="text-label-md text-on-surface-variant">{label}</span>
-      <input
-        type="number"
-        value={value}
-        step={step}
-        onChange={(e) => set(Number(e.target.value) || 0)}
-        className="mt-1 h-9 w-full rounded-lg border border-border-base px-2 text-body-sm mono"
-      />
+      <div className="mt-1 flex items-center gap-1">
+        <input
+          type="number"
+          value={value}
+          step={step}
+          min={min}
+          max={max}
+          onChange={(e) => {
+            let n = Number(e.target.value) || 0;
+            if (min !== undefined) n = Math.max(min, n);
+            if (max !== undefined) n = Math.min(max, n);
+            set(n);
+          }}
+          className="h-9 w-full rounded-lg border border-border-base px-2 text-body-sm mono"
+        />
+        {suffix && <span className="text-body-sm text-on-surface-variant">{suffix}</span>}
+      </div>
     </label>
   );
+}
+
+// A perfect eval means zero *known* errors, not zero review: you cannot tell
+// which document is wrong without opening it, and finance teams sample-check
+// regardless. Opening the case at 0% review / 100% saving is not credible, so
+// the eval-derived rate seeds the field but never floors below a QA sample.
+const MIN_SPOT_CHECK = 0.05;
+
+// Cost-benefit / ROI calculator (deliverable #6). Every assumption is editable
+// so the case can be stress-tested live; the review rate is seeded from the real
+// evaluation rather than guessed.
+function ROICard({ needsReviewFraction }: { needsReviewFraction: number }) {
+  const [volume, setVolume] = useState(1000); // docs / month
+  const [manualMin, setManualMin] = useState(6); // minutes to key one doc manually
+  const [rate, setRate] = useState(50000); // reviewer cost, IDR / hour
+  const [reviewMin, setReviewMin] = useState(3); // minutes to review one flagged doc
+  const [implCost, setImplCost] = useState(15000000); // one-time setup, IDR
+
+  // Seeded from the eval, floored at a spot-check rate, then editable.
+  const seededReview = Math.round(Math.max(needsReviewFraction, MIN_SPOT_CHECK) * 100);
+  const [reviewPct, setReviewPct] = useState(seededReview);
+  const flooredBelowEval = needsReviewFraction < MIN_SPOT_CHECK;
+
+  const manualCost = volume * (manualMin / 60) * rate;
+  const reviewedDocs = volume * (reviewPct / 100);
+  const autoCost = reviewedDocs * (reviewMin / 60) * rate; // only reviewed docs cost a human
+  const savings = manualCost - autoCost;
+  const savingsPct = manualCost > 0 ? (savings / manualCost) * 100 : 0;
+  const paybackMonths = savings > 0 ? implCost / savings : Infinity;
+  const max = Math.max(manualCost, autoCost, 1);
 
   return (
     <Card title="Cost-Benefit vs. Manual Entry (ROI)">
       <div className="grid grid-cols-1 gap-gutter md:grid-cols-2">
         {/* Assumptions */}
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="Volume (docs/month)" value={volume} set={setVolume} step={100} />
-          <Input label="Manual min/doc" value={manualMin} set={setManualMin} />
-          <Input label="Reviewer rate (IDR/hr)" value={rate} set={setRate} step={5000} />
-          <Input label="Review min/flagged doc" value={reviewMin} set={setReviewMin} />
-          <Input label="One-time setup (IDR)" value={implCost} set={setImplCost} step={1000000} />
-          <label className="block">
-            <span className="text-label-md text-on-surface-variant">Docs needing review</span>
-            <div className="mt-1 flex h-9 items-center rounded-lg border border-border-base px-2 text-body-sm mono text-text-primary">
-              {(needsReviewFraction * 100).toFixed(0)}%
-            </div>
-          </label>
+        <div>
+          <div className="grid grid-cols-2 gap-3">
+            <RoiInput label="Volume (docs/month)" value={volume} set={setVolume} step={100} min={0} />
+            <RoiInput label="Manual min/doc" value={manualMin} set={setManualMin} min={0} />
+            <RoiInput label="Reviewer rate (IDR/hr)" value={rate} set={setRate} step={5000} min={0} />
+            <RoiInput label="Review min/flagged doc" value={reviewMin} set={setReviewMin} min={0} />
+            <RoiInput label="One-time setup (IDR)" value={implCost} set={setImplCost} step={1000000} min={0} />
+            <RoiInput
+              label="Docs needing review"
+              value={reviewPct}
+              set={setReviewPct}
+              step={5}
+              min={0}
+              max={100}
+              suffix="%"
+            />
+          </div>
+          {/* Say where the seed came from — a reviewer should be able to tell a
+              measured input from a guessed one. */}
+          <p className="mt-3 text-[12px] leading-relaxed text-on-surface-variant">
+            Review rate seeded from the accuracy evaluation:{" "}
+            <strong className="mono">{(needsReviewFraction * 100).toFixed(0)}%</strong> of documents
+            were not fully correct.{" "}
+            {flooredBelowEval && (
+              <>
+                Floored to {MIN_SPOT_CHECK * 100}% because a perfect score means no{" "}
+                <em>known</em> errors, not zero review — you cannot tell which document is wrong
+                without opening it, and a spot-check sample is standard practice.{" "}
+              </>
+            )}
+            Adjust any figure to stress-test the case.
+          </p>
         </div>
 
         {/* Results */}
         <div>
-          <Row label="Manual processing" amount={manualCost} cls="bg-status-error" />
-          <Row label="Automated (review only)" amount={autoCost} cls="bg-status-success" />
+          <RoiRow label="Manual processing" amount={manualCost} max={max} cls="bg-status-error" />
+          <RoiRow label="Automated (review only)" amount={autoCost} max={max} cls="bg-status-success" />
           <div className="mt-3 rounded-lg bg-status-success/5 p-3">
             <div className="text-body-sm text-on-surface-variant">Estimated savings</div>
             <div className="text-headline-md font-semibold text-status-success mono">

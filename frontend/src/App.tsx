@@ -11,6 +11,7 @@ import RequireRole from "./components/RequireRole";
 import { roleHome } from "./lib/auth";
 import LoginPage from "./pages/LoginPage";
 import UploadPage from "./pages/UploadPage";
+import ReviewQueuePage from "./pages/ReviewQueuePage";
 import ReviewPage from "./pages/ReviewPage";
 import DashboardPage from "./pages/DashboardPage";
 import ChatPage from "./pages/ChatPage";
@@ -40,7 +41,7 @@ export default function App() {
           path="/review"
           element={
             <RequireRole allow={["staff", "admin"]}>
-              <ReviewPage />
+              <ReviewQueuePage />
             </RequireRole>
           }
         />

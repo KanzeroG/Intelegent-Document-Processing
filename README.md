@@ -26,13 +26,19 @@ development run everything locally. The frontend's API URL is configurable via
 ## Current status
 
 Working end-to-end: **upload → extract → validate → review/correct → approve**,
-with a DocExtract UI (login, upload, review, dashboard). Extractions are
+with a full UI (login, upload, review, dashboard, chat). Extractions are
 **cached in SQLite** (`data/docextract.db`) with the original file, so re-opening
 the app doesn't re-run the model.
 
+### Key Features Developed
+- **Intelligent Extraction:** Strict JSON output driven by Few-Shot Prompt Engineering (tailored for Qwen/MiniCPM local models) to accurately parse Indonesian Rupiah and line items without hallucination.
+- **Hybrid RAG Chat Assistant:** Ask questions about your documents (e.g., "What's the total tax?"). Uses full-context injection for small datasets (<= 60 docs) and Vector Search (Cosine Similarity via LM Studio embeddings) for large datasets (60+ docs) to keep RAM usage low and safe.
+- **Persistent Chat History:** Chat sessions are saved in SQLite with automatic AI-generated session titles based on your first question.
+- **Admin Document Management:** Admins can permanently delete unwanted/test documents from the database, preventing storage bloat.
+
 API: `POST /extract` (extract + persist), `GET /documents`, `GET /documents/{id}`,
-`GET /documents/{id}/file`, `PATCH /documents/{id}` (save corrections / status;
-re-validates edited data).
+`GET /documents/{id}/file`, `PATCH /documents/{id}` (save corrections), `DELETE /documents/{id}` (admin only).
+Also includes chat endpoints (`POST /chat`, `GET /chat/sessions`, `DELETE /chat/sessions/{id}`).
 
 ### Accuracy evaluation (deliverable #5)
 Run the extraction over the labelled `Source/` docs and compare to ground truth

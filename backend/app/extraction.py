@@ -132,7 +132,7 @@ def _build_prompt(doc_type: DocumentType) -> str:
         "You are a precise document-extraction engine. Read the attached "
         f"{doc_type.value} image and extract its fields.\n\n"
         "Return ONLY a single JSON object conforming to this JSON schema — no "
-        "markdown, no code fences, no commentary:\n\n"
+        "markdown, no code fences, no commentary. YOUR OUTPUT MUST START WITH '{' AND END WITH '}':\n\n"
         f"{schema}\n\n"
         "CRITICAL — Indonesian Rupiah amounts:\n"
         "- The '.' character is a THOUSANDS SEPARATOR, never a decimal point.\n"
@@ -154,7 +154,27 @@ def _build_prompt(doc_type: DocumentType) -> str:
         "- Dates: convert to YYYY-MM-DD. Indonesian/English month names count, "
         "e.g. '24 Feb 2026' -> 2026-02-24, '5 Agustus 2026' -> 2026-08-05.\n"
         "- Currency defaults to IDR.\n"
-        "- Use null for any field not present in the document.\n"
+        "- Use null for any field not present in the document.\n\n"
+        "EXAMPLE JSON OUTPUT:\n"
+        "{\n"
+        '  "doc_type": "Invoice",\n'
+        '  "doc_number": "INV-2026-001",\n'
+        '  "vendor": "PT Contoh vendor",\n'
+        '  "buyer": "PT Buyer",\n'
+        '  "doc_date": "2026-02-24",\n'
+        '  "currency": "IDR",\n'
+        '  "subtotal": 100000,\n'
+        '  "tax_amount": 11000,\n'
+        '  "total_amount": 111000,\n'
+        '  "line_items": [\n'
+        "    {\n"
+        '      "description": "Item 1",\n'
+        '      "qty": 1,\n'
+        '      "unit_price": 100000,\n'
+        '      "line_total": 100000\n'
+        "    }\n"
+        "  ]\n"
+        "}\n"
     )
 
 

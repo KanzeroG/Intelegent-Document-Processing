@@ -493,12 +493,37 @@ def patch_document(doc_id: str, body: PatchBody, user: AuthUser = Depends(get_cu
     return db.get_document(doc_id)  # type: ignore[return-value]
 
 
+@app.delete("/documents/{doc_id}")
+def delete_document(doc_id: str, user: AuthUser = Depends(get_current_user), _: Role = Depends(require_admin)) -> dict:
+    """Permanently delete a document and its data (Admin only)."""
+    if not db.get_document(doc_id):
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not db.delete_document(doc_id):
+        raise HTTPException(status_code=500, detail="Failed to delete document")
+    db.add_audit(actor=user.email, role=user.role.value, action="delete",
+                 doc_id=doc_id, detail="Document permanently deleted.")
+    return {"deleted": True}
+
+
 # --- RAG chat (bonus) ---------------------------------------------------------
 
 class ChatRequest(BaseModel):
     question: str
     doc_id: str | None = None
     model: str | None = None  # MODEL_PROFILES key; None = the configured default
+    history: list[dict[str, str]] | None = None
+    session_id: str | None = None
+
+class ChatSessionItem(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    scope_doc_id: str | None
+
+class ChatSessionDetails(ChatSessionItem):
+    messages: list[dict[str, Any]]
+
 
 
 class ChatCitation(BaseModel):
@@ -509,6 +534,8 @@ class ChatCitation(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     citations: list[ChatCitation]
+    session_id: str
+
 
 
 @app.post("/chat")
@@ -539,11 +566,66 @@ def chat(body: ChatRequest, user: AuthUser = Depends(get_current_user)) -> ChatR
         if target is None:
             raise HTTPException(status_code=404, detail="Document not found.")
 
+    session_id = body.session_id
+    history_to_use = body.history or []
+    is_new_session = False
+    
+    if session_id:
+        session = db.get_chat_session(session_id, user.email or "")
+        if session:
+            # Use backend history instead if it exists
+            history_to_use = session.get("messages", [])
+    else:
+        is_new_session = True
+        session_id = uuid.uuid4().hex
+
     try:
-        answer, citations = rag.answer_question(question, visible, target, model=body.model)
+        answer, citations = rag.answer_question(question, visible, target, model=body.model, history=history_to_use)
     except rag.ChatError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+        
+    # Persist session
+    new_messages = history_to_use + [
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": answer}
+    ]
+    
+    if is_new_session:
+        title = rag.generate_chat_title(question, body.model)
+        db.create_chat_session(session_id, title, user.email or "", body.doc_id, new_messages)
+    else:
+        db.update_chat_session(session_id, user.email or "", new_messages)
+
     return ChatResponse(
         answer=answer,
         citations=[ChatCitation(**c) for c in citations],
+        session_id=session_id
     )
+
+@app.get("/chat/sessions")
+def list_chat_sessions(user: AuthUser = Depends(get_current_user)) -> list[dict]:
+    """List all chat sessions for the current user."""
+    if not user.email:
+        raise HTTPException(status_code=401, detail="Must be logged in.")
+    return db.get_chat_sessions(user.email)
+
+
+@app.get("/chat/sessions/{session_id}")
+def get_chat_session(session_id: str, user: AuthUser = Depends(get_current_user)) -> dict:
+    """Get a specific chat session with its full message history."""
+    if not user.email:
+        raise HTTPException(status_code=401, detail="Must be logged in.")
+    session = db.get_chat_session(session_id, user.email)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return session
+
+
+@app.delete("/chat/sessions/{session_id}")
+def delete_chat_session(session_id: str, user: AuthUser = Depends(get_current_user)) -> dict:
+    """Delete a chat session."""
+    if not user.email:
+        raise HTTPException(status_code=401, detail="Must be logged in.")
+    if not db.delete_chat_session(session_id, user.email):
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return {"deleted": True}
