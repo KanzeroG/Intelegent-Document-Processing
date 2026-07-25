@@ -23,11 +23,17 @@ data/*.db
 data/eval_results.csv
 data/eval_summary.json
 
+# Literature-review working files (Publish or Perish exports — personal research
+# notes, not project source)
+Works/Screening - *
+
 # OS / editor
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+# Word/Office lock files created while a document is open
+~$*
 
 # Local agent customizations / skills
 .agents/
