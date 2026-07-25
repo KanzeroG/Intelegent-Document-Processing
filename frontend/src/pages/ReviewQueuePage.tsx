@@ -317,7 +317,7 @@ export default function ReviewQueuePage() {
               </thead>
               <tbody className="text-body-md">
                 {paginatedDocs.map((d, i) => (
-                  <tr key={d.id} className={selected.has(d.id) ? "bg-secondary/5" : i % 2 ? "bg-surface-container-low/40" : ""}>
+                  <tr key={d.id} className={[selected.has(d.id) ? "bg-secondary/5" : i % 2 ? "bg-surface-container-low/40" : "", "animate-fade-slide-up group transition-colors hover:bg-surface-container/60"].join(" ")} style={{ animationDelay: `${i * 50}ms` }}>
                     {canExport && (
                       <td className="px-5 py-3">
                         <input type="checkbox" checked={selected.has(d.id)} disabled={d.status !== "approved"} onChange={() => toggleRow(d.id)} className="h-4 w-4 accent-secondary disabled:cursor-not-allowed disabled:opacity-30" />

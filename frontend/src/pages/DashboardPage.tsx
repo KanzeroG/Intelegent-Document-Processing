@@ -96,14 +96,14 @@ export default function DashboardPage() {
 
       {/* Metric cards */}
       <div className="mt-6 grid grid-cols-2 gap-gutter lg:grid-cols-4">
-        <Metric icon="description" label="Total Documents" value={total} tint="text-secondary" />
-        <Metric icon="pending_actions" label="Pending Review" value={pending} tint="text-status-warning" />
-        <Metric icon="task_alt" label="Approved" value={approved} tint="text-status-success" />
-        <Metric icon="flag" label="Flagged Issues" value={flagged} tint="text-status-error" />
+        <Metric icon="description" label="Total Documents" value={total} tint="text-secondary" delay="0ms" />
+        <Metric icon="pending_actions" label="Pending Review" value={pending} tint="text-status-warning" delay="100ms" />
+        <Metric icon="task_alt" label="Approved" value={approved} tint="text-status-success" delay="200ms" />
+        <Metric icon="flag" label="Flagged Issues" value={flagged} tint="text-status-error" delay="300ms" />
       </div>
 
       {/* Model accuracy vs ground truth (evaluation — deliverable #5) */}
-      <div className="mt-gutter rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
+      <div className="mt-gutter rounded-lg border border-border-base bg-surface-white p-5 shadow-sm animate-fade-slide-up" style={{ animationDelay: '50ms' }}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-headline-md text-text-primary">Model Accuracy (vs ground truth)</h3>
@@ -212,7 +212,7 @@ export default function DashboardPage() {
 
       <div className="mt-gutter grid grid-cols-1 gap-gutter lg:grid-cols-3">
         {/* Docs by type */}
-        <Card title="Docs by Type">
+        <Card title="Docs by Type" delay="100ms">
           <div className="space-y-3">
             {byType.map((b) => (
               <div key={b.type}>
@@ -230,7 +230,7 @@ export default function DashboardPage() {
 
         {/* Session confidence — a heuristic, deliberately NOT called "accuracy"
             (ground-truth accuracy lives in the eval section above). */}
-        <Card title="Avg Extraction Confidence">
+        <Card title="Avg Extraction Confidence" delay="200ms">
           <div className="flex items-end gap-2">
             <span className="text-display text-text-primary">{avgConfidence}%</span>
             <span className="mb-2 text-body-sm text-on-surface-variant">this session</span>
@@ -243,7 +243,7 @@ export default function DashboardPage() {
           </p>
         </Card>
 
-        <Card title="Issues by Rule">
+        <Card title="Issues by Rule" delay="300ms">
           {topRules.length === 0 ? (
             <p className="text-body-sm text-on-surface-variant">No issues recorded.</p>
           ) : (
@@ -271,9 +271,9 @@ export default function DashboardPage() {
   );
 }
 
-function Metric({ icon, label, value, tint }: { icon: string; label: string; value: number; tint: string }) {
+function Metric({ icon, label, value, tint, delay }: { icon: string; label: string; value: number; tint: string; delay?: string }) {
   return (
-    <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
+    <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm animate-fade-slide-up" style={{ animationDelay: delay }}>
       <span className={`material-symbols-outlined ${tint}`}>{icon}</span>
       <div className="mt-2 text-display text-text-primary">{value}</div>
       <div className="text-body-sm text-on-surface-variant">{label}</div>
@@ -281,9 +281,9 @@ function Metric({ icon, label, value, tint }: { icon: string; label: string; val
   );
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Card({ title, children, delay }: { title: string; children: React.ReactNode; delay?: string }) {
   return (
-    <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
+    <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm animate-fade-slide-up" style={{ animationDelay: delay }}>
       <h3 className="text-headline-md text-text-primary">{title}</h3>
       <div className="mt-4">{children}</div>
     </div>
@@ -367,7 +367,7 @@ function ROICard({ needsReviewFraction }: { needsReviewFraction: number }) {
   const max = Math.max(manualCost, autoCost, 1);
 
   return (
-    <Card title="Cost-Benefit vs. Manual Entry (ROI)">
+    <Card title="Cost-Benefit vs. Manual Entry (ROI)" delay="400ms">
       <div className="grid grid-cols-1 gap-gutter md:grid-cols-2">
         {/* Assumptions */}
         <div>

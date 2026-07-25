@@ -52,12 +52,12 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen">
       {/* Left hero */}
-      <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-primary p-12 text-white lg:flex">
-        <div className="flex items-center gap-3">
+      <div className="relative hidden w-1/2 flex-col justify-between overflow-hidden bg-primary p-12 text-white lg:flex animate-fade-in">
+        <div className="flex items-center gap-3 animate-fade-slide-up" style={{ animationDelay: '100ms' }}>
           <span className="material-symbols-outlined text-3xl">description</span>
           <span className="text-xl font-bold">DocExtract</span>
         </div>
-        <div className="relative z-10">
+        <div className="relative z-10 animate-fade-slide-up" style={{ animationDelay: '200ms' }}>
           <h1 className="text-display font-bold leading-tight">
             Intelligent Document Processing
           </h1>
@@ -72,7 +72,7 @@ export default function LoginPage() {
 
       {/* Right form */}
       <div className="flex w-full items-center justify-center bg-surface p-6 lg:w-1/2">
-        <form onSubmit={handleSignIn} className="w-full max-w-md rounded-lg border border-border-base bg-surface-white p-8 shadow-sm">
+        <form onSubmit={handleSignIn} className="w-full max-w-md rounded-lg border border-border-base bg-surface-white p-8 shadow-sm animate-fade-slide-up" style={{ animationDelay: '300ms' }}>
           <h2 className="text-headline-lg text-text-primary">Welcome back</h2>
           <p className="mt-1 text-body-md text-on-surface-variant">
             Enter your credentials to access your workspace

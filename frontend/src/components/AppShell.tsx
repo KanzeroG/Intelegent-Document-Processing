@@ -113,7 +113,7 @@ export default function AppShell() {
               title={isCollapsed ? item.label : undefined}
               className={({ isActive }) =>
                 [
-                  "flex items-center gap-3 rounded-full py-2.5 transition-colors whitespace-nowrap",
+                  "group flex items-center gap-3 rounded-full py-2.5 transition-colors whitespace-nowrap",
                   isCollapsed ? "justify-center px-0 w-10 h-10 mx-auto" : "px-4",
                   isActive
                     ? "bg-secondary-container text-on-secondary-container font-semibold"
@@ -121,7 +121,7 @@ export default function AppShell() {
                 ].join(" ")
               }
             >
-              <span className="material-symbols-outlined text-[22px]">{item.icon}</span>
+              <span className="material-symbols-outlined text-[22px] transition-transform duration-200 group-hover:scale-110">{item.icon}</span>
               {!isCollapsed && <span>{item.label}</span>}
             </NavLink>
           ))}
@@ -192,7 +192,9 @@ export default function AppShell() {
         )}
 
         <main className="flex-1 overflow-y-auto">
-          <Outlet />
+          <div key={location.pathname} className="animate-fade-in h-full">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>

@@ -250,6 +250,9 @@ def add_audit(
                 "detail": detail,
             },
         )
+        conn.execute(
+            "DELETE FROM audit_log WHERE id NOT IN (SELECT id FROM audit_log ORDER BY id DESC LIMIT 60)"
+        )
 
 
 def list_audit(limit: int = 200) -> list[dict[str, Any]]:

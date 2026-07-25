@@ -28,12 +28,15 @@ export default function AuditPage() {
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const rowsPerPage = 30;
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      setEntries(await listAudit(200));
+      setEntries(await listAudit(60));
+      setPage(1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not load the audit log.");
     } finally {
@@ -114,7 +117,7 @@ export default function AuditPage() {
                 </tr>
               </thead>
               <tbody>
-                {(entries ?? []).map((e, i) => {
+                {entries ? entries.slice((page - 1) * rowsPerPage, page * rowsPerPage).map((e, i) => {
                   const style = ACTION_STYLE[e.action] ?? {
                     label: e.action,
                     cls: "bg-status-neutral/10 text-status-neutral",
@@ -141,9 +144,33 @@ export default function AuditPage() {
                       <td className="min-w-[240px] px-5 py-2.5 text-on-surface-variant">{e.detail}</td>
                     </tr>
                   );
-                })}
+                }) : null}
               </tbody>
             </table>
+            
+            {entries && Math.ceil(entries.length / rowsPerPage) > 1 && (
+              <div className="flex items-center justify-between border-t border-border-base px-5 py-3 bg-surface-white">
+                <span className="text-body-sm text-on-surface-variant">
+                  Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, entries.length)} of {entries.length}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="flex h-8 w-8 items-center justify-center rounded-md border border-border-base text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-lg">chevron_left</span>
+                  </button>
+                  <button
+                    onClick={() => setPage(p => Math.min(Math.ceil(entries.length / rowsPerPage), p + 1))}
+                    disabled={page === Math.ceil(entries.length / rowsPerPage)}
+                    className="flex h-8 w-8 items-center justify-center rounded-md border border-border-base text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-lg">chevron_right</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

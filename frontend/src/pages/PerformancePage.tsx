@@ -12,6 +12,12 @@ export default function PerformancePage() {
   const [speedFilter, setSpeedFilter] = useState<string>("all");
   const [modelFilter, setModelFilter] = useState<string>("all");
   const [refreshing, setRefreshing] = useState(false);
+  const [page, setPage] = useState(1);
+  const rowsPerPage = 10;
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, typeFilter, modelFilter, speedFilter]);
 
   // Model labels come from the backend registry rather than a hardcoded map,
   // so a model added there is named correctly here without a frontend change.
@@ -141,6 +147,11 @@ export default function PerformancePage() {
       return matchesSearch && matchesType && matchesModel && matchesSpeed;
     });
   }, [docs, searchTerm, typeFilter, modelFilter, speedFilter]);
+
+  const totalPages = Math.ceil(filteredDocs.length / rowsPerPage);
+  const paginatedDocs = useMemo(() => {
+    return filteredDocs.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+  }, [filteredDocs, page]);
 
   // Helper to color-code processing time badges
   const getSpeedLabel = (time: number | null) => {
@@ -412,7 +423,7 @@ export default function PerformancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredDocs.map((d) => {
+                  {paginatedDocs.map((d) => {
                     const speed = getSpeedLabel(d.processingTime);
                     return (
                       <tr
@@ -471,6 +482,30 @@ export default function PerformancePage() {
                   })}
                 </tbody>
               </table>
+            )}
+            
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border-base py-3 bg-surface-white">
+                <span className="text-body-sm text-on-surface-variant px-2">
+                  Showing {(page - 1) * rowsPerPage + 1} to {Math.min(page * rowsPerPage, filteredDocs.length)} of {filteredDocs.length}
+                </span>
+                <div className="flex gap-2 px-2">
+                  <button
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    className="flex h-8 w-8 items-center justify-center rounded-md border border-border-base text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-lg">chevron_left</span>
+                  </button>
+                  <button
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages}
+                    className="flex h-8 w-8 items-center justify-center rounded-md border border-border-base text-on-surface-variant hover:bg-surface-container disabled:opacity-50"
+                  >
+                    <span className="material-symbols-outlined text-lg">chevron_right</span>
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 

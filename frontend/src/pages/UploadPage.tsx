@@ -2,9 +2,9 @@ import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import toast from "react-hot-toast";
 import { extractDocument, listModels, type DocType, type ModelOption } from "../api";
-import { useAuth, useDocuments } from "../store";
+import { useDocuments } from "../store";
 import StatusBadge from "../components/StatusBadge";
-import { DOC_TYPE_LABEL, docLabel, formatDateTime } from "../lib/format";
+import { DOC_TYPE_LABEL, docLabel } from "../lib/format";
 
 const TYPES: DocType[] = ["invoice", "purchase_order", "receipt"];
 const DEFAULT_DOC_TYPE: DocType = "invoice";
@@ -90,9 +90,9 @@ export default function UploadPage() {
             onDragLeave={() => setDragActive(false)}
             onDrop={(e) => { e.preventDefault(); setDragActive(false); addFiles(e.dataTransfer.files); }}
             onClick={() => inputRef.current?.click()}
-            className={["flex min-h-[180px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed bg-surface-white p-8 text-center transition-colors", dragActive ? "border-secondary bg-secondary/5" : "border-outline-variant"].join(" ")}
+            className={["group flex min-h-[180px] cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed bg-surface-white p-8 text-center transition-all duration-300", dragActive ? "border-secondary bg-secondary/5 scale-[1.02] shadow-md shadow-secondary/20" : "border-outline-variant hover:border-secondary/60 hover:bg-surface-container-low"].join(" ")}
           >
-            <span className="material-symbols-outlined text-5xl text-secondary">cloud_upload</span>
+            <span className={["material-symbols-outlined text-5xl text-secondary transition-transform duration-300", dragActive ? "scale-125 animate-pulse-soft" : "group-hover:scale-110"].join(" ")}>cloud_upload</span>
             <p className="mt-3 text-headline-md text-text-primary">Drag invoices, purchase orders, or receipts here</p>
             <p className="mt-1 text-body-sm text-on-surface-variant">Multiple files supported · PDF, PNG, or JPG</p>
             <span className="mt-4 rounded-lg bg-primary px-4 py-2 text-body-md font-semibold text-white">Browse files</span>
@@ -132,8 +132,8 @@ export default function UploadPage() {
                       <span className="truncate">Extracting {progress.current}…</span>
                       <span className="mono">{progress.done}/{progress.total}</span>
                     </div>
-                    <div className="mt-1 h-2 rounded-full bg-surface-container">
-                      <div className="h-2 rounded-full bg-secondary transition-all" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
+                    <div className="mt-1 h-2 rounded-full bg-surface-container overflow-hidden">
+                      <div className="h-2 rounded-full bg-secondary transition-all duration-500 animate-pulse-soft" style={{ width: `${Math.max((progress.done / progress.total) * 100, 5)}%` }} />
                     </div>
                   </div>
                 ) : (
@@ -206,7 +206,7 @@ export default function UploadPage() {
               </thead>
               <tbody className="text-body-md">
                 {recentDocs.map((d, i) => (
-                  <tr key={d.id} className={i % 2 ? "bg-surface-container-low/40" : ""}>
+                  <tr key={d.id} className={[i % 2 ? "bg-surface-container-low/40" : "", "animate-fade-slide-up"].join(" ")} style={{ animationDelay: `${i * 100}ms` }}>
                     <td className="px-5 py-3 font-semibold text-secondary mono">{docLabel(d)}</td>
                     <td className="max-w-[260px] truncate px-5 py-3 text-text-primary">{d.fileName}</td>
                     <td className="px-5 py-3 text-on-surface-variant">{DOC_TYPE_LABEL[d.docType]}</td>
