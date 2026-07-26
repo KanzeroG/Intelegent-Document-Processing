@@ -88,7 +88,7 @@ export default function DashboardPage() {
       : 0.2;
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-6xl p-gutter">
       <h1 className="text-headline-lg text-text-primary">Monitoring Dashboard</h1>
       <p className="mt-1 text-body-md text-on-surface-variant">
         System performance, accuracy metrics, and automation ROI (this session).

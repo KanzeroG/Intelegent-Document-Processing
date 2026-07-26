@@ -292,7 +292,7 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-6xl p-gutter">
       <div className="flex items-center gap-2 text-body-sm text-on-surface-variant">
         {canEdit ? (
           <Link to="/review" className="hover:underline">Review Queue</Link>

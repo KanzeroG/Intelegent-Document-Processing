@@ -169,7 +169,7 @@ export default function PerformancePage() {
   }, [typeBreakdown]);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-gutter">
+    <div className="mx-auto max-w-6xl space-y-gutter p-gutter">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>

@@ -36,7 +36,7 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 
 export default function SettingsPage() {
   return (
-    <div className="mx-auto max-w-4xl space-y-8">
+    <div className="mx-auto max-w-4xl space-y-8 p-gutter">
       <div>
         <h1 className="text-headline-lg text-text-primary">Settings</h1>
         <p className="mt-1 text-body-md text-on-surface-variant">

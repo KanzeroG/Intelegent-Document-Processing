@@ -157,7 +157,7 @@ export default function ReviewQueuePage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-6xl p-gutter">
       <h1 className="text-headline-lg text-text-primary">Review Queue</h1>
       <p className="mt-1 text-body-md text-on-surface-variant">
         Manage and review extracted documents.

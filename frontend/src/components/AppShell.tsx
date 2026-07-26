@@ -84,7 +84,7 @@ export default function AppShell() {
         <div className={`flex items-center ${isCollapsed ? "justify-center" : "gap-3 px-4"} py-4 h-16`}>
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors lg:flex hidden"
+            className="hidden h-10 w-10 shrink-0 place-items-center rounded-full text-on-surface-variant hover:bg-surface-container transition-colors lg:grid"
             title="Toggle Menu"
           >
             <span className="material-symbols-outlined">menu</span>
