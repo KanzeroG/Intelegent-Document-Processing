@@ -25,8 +25,11 @@ development run everything locally. The frontend's API URL is configurable via
 
 ## Current status
 
-Working end-to-end: **upload → extract → validate → review/correct → approve**,
-with a full UI (login, upload, review, dashboard, chat). Extractions are
+Working end-to-end: **upload → extract → validate → review/correct → approve →
+archive**, with a full UI (login, upload, review, archive, dashboard, chat).
+Staff correct and reject; **only an admin approves** — approval stamps
+`approved_at`, hands the document to the mock downstream API, and files it in
+the Archive. Extractions are
 **cached in SQLite** (`data/docextract.db`) with the original file, so re-opening
 the app doesn't re-run the model.
 
@@ -35,9 +38,13 @@ the app doesn't re-run the model.
 - **Hybrid RAG Chat Assistant:** Ask questions about your documents (e.g., "What's the total tax?"). Uses full-context injection for small datasets (<= 60 docs) and Vector Search (Cosine Similarity via LM Studio embeddings) for large datasets (60+ docs) to keep RAM usage low and safe.
 - **Persistent Chat History:** Chat sessions are saved in SQLite with automatic AI-generated session titles based on your first question.
 - **Admin Document Management:** Admins can permanently delete unwanted/test documents from the database, preventing storage bloat.
+- **Archive (staff/admin):** Approved documents are filed by approval date — a year of 12 month cards (`/archive`) drills into one month (`/archive/:year/:month`), where each day is a collapsible group listing Doc ID, name, type and a View action. Filters (date, type, name/ID) jump straight to the day that owns a date, even in another month.
+- **Archive range export:** From the year bar, export the Archive over a whole year, a range of months, or an arbitrary date range (optionally narrowed to one document type) as **PDF, Word (.docx), Excel (.xlsx), CSV or JSON**. PDF/Word give a formatted report with a totals row; Excel adds a second sheet of line items; CSV/JSON stay machine-readable (ground-truth columns). Every export is attributed in the audit trail.
 
 API: `POST /extract` (extract + persist), `GET /documents`, `GET /documents/{id}`,
 `GET /documents/{id}/file`, `PATCH /documents/{id}` (save corrections), `DELETE /documents/{id}` (admin only).
+Exports: `GET /documents/{id}/export.{json,csv}`, `GET /exports/documents.csv`, `POST /exports/selected.csv`,
+`GET /exports/archive.{pdf,docx,xlsx,csv,json}?start=&end=[&doc_type=]` (inclusive approval-date range, staff/admin).
 Also includes chat endpoints (`POST /chat`, `GET /chat/sessions`, `DELETE /chat/sessions/{id}`).
 
 ### Accuracy evaluation (deliverable #5)

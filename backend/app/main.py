@@ -16,7 +16,7 @@ model directly.
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -431,6 +431,78 @@ def export_selected_csv(
     )
 
 
+def _parse_iso_date(value: str, label: str) -> date:
+    """Query-param date guard: 'YYYY-MM-DD' or a 400 naming the offending param."""
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{label} must be a YYYY-MM-DD date.")
+
+
+@app.get("/exports/archive.{fmt}")
+def export_archive(
+    fmt: str,
+    start: str,
+    end: str,
+    doc_type: str | None = None,
+    user: AuthUser = Depends(get_current_user),
+) -> Response:
+    """Export the Archive over a date range, in the caller's chosen format.
+
+    The Archive files documents by *approval* date, so that is what `start`/`end`
+    (both inclusive) filter on — the same axis the Archive UI groups by, which
+    means what you see on screen is what lands in the file. The year / month-range
+    / date-range choices in the UI all reduce to a pair of dates here, so the
+    backend needs one endpoint rather than three.
+
+    Reviewer action: `user`-role callers are rejected, matching the rest of the
+    export surface (only staff/admin can see the Archive at all).
+    """
+    if _is_scoped_user(user):
+        raise HTTPException(status_code=403, detail="Reviewer (staff/admin) role required.")
+    if fmt not in export.REPORT_FORMATS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported format '{fmt}'. Choose one of: "
+                   + ", ".join(sorted(export.REPORT_FORMATS)) + ".",
+        )
+    start_date = _parse_iso_date(start, "start")
+    end_date = _parse_iso_date(end, "end")
+    if start_date > end_date:
+        raise HTTPException(status_code=400, detail="start must be on or before end.")
+
+    records = [
+        r for r in db.list_documents()
+        if r.get("status") == "approved"
+        and r.get("approved_at")
+        and start <= str(r["approved_at"])[:10] <= end
+        and (doc_type is None or r.get("doc_type") == doc_type)
+    ]
+    if not records:
+        raise HTTPException(
+            status_code=404, detail="No approved documents in that date range."
+        )
+    # Chronological: a report reads forwards, unlike the newest-first UI list.
+    records.sort(key=lambda r: (str(r.get("approved_at") or ""), str(r.get("id") or "")))
+
+    title = f"Archive export · {start} to {end}"
+    if doc_type:
+        title += f" · {export.DOC_TYPE_LABEL.get(doc_type, doc_type)}"
+    build, media_type = export.REPORT_FORMATS[fmt]
+    db.add_audit(
+        actor=user.email, role=user.role.value, action="export",
+        detail=f"Archive {fmt.upper()} export ({start}..{end}"
+               + (f", type={doc_type}" if doc_type else "")
+               + f", {len(records)} docs).",
+    )
+    filename = f"archive_{start}_{end}.{fmt}"
+    return Response(
+        content=build(records, title),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/mock-api/ingest")
 def mock_ingest(payload: dict) -> dict:
     """Mock downstream system (e.g. an ERP). Accepts an approved document and
@@ -455,9 +527,33 @@ def patch_document(doc_id: str, body: PatchBody, user: AuthUser = Depends(get_cu
     # callers are rejected — tokenless callers keep the original open behavior.
     if _is_scoped_user(user):
         raise HTTPException(status_code=403, detail="Reviewer (staff/admin) role required.")
+    # Deciding a document's fate — approve or reject — is the admin's call.
+    # Staff submit corrections (`data`), which re-derive the status from the
+    # validation rules but never set it directly. Enforced here, not only by
+    # hiding the buttons.
+    if body.status is not None and user.role != Role.ADMIN:
+        raise HTTPException(
+            status_code=403,
+            detail="Only an admin can approve or reject a document.",
+        )
     existing = db.get_document(doc_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Document not found.")
+
+    was_approved = existing.get("status") == "approved"
+
+    def approval_stamp(new_status: str) -> str | None | object:
+        """Timestamp of approval — the date the archive groups documents by.
+
+        Stamped on the transition into `approved`, cleared when a document
+        leaves that state (so a re-approval gets an accurate date), and left
+        untouched otherwise.
+        """
+        if new_status == "approved":
+            if was_approved:
+                return db.UNSET
+            return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        return None if was_approved else db.UNSET
 
     # If corrected data was supplied, re-validate it so issues/confidence/status
     # reflect the human's edits.
@@ -473,9 +569,10 @@ def patch_document(doc_id: str, body: PatchBody, user: AuthUser = Depends(get_cu
         db.update_document(
             doc_id, data=rec["data"], issues=rec["issues"],
             status=status, confidence=rec["confidence"],
+            approved_at=approval_stamp(status),
         )
     elif body.status is not None:
-        db.update_document(doc_id, status=body.status)
+        db.update_document(doc_id, status=body.status, approved_at=approval_stamp(body.status))
 
     # Audit trail: name the review action the way the UI does.
     old_status = existing.get("status")

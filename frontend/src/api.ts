@@ -54,6 +54,7 @@ export interface DocumentRecord {
   uploaded_by: string | null;
   processing_time?: number | null;
   model?: string | null; // extraction model profile key ("qwen" | "minicpm")
+  approved_at?: string | null; // set when an admin approved it; drives the Archive
 }
 
 // A vision model the backend can extract with (from GET /models).
@@ -214,6 +215,26 @@ export async function downloadSelectedCsv(ids: string[], filename: string): Prom
     body: JSON.stringify({ ids }),
     headers: { "Content-Type": "application/json" },
   });
+}
+
+// File formats the Archive export offers. Mirrors export.REPORT_FORMATS on the
+// backend — anything missing there comes back as a 400.
+export type ExportFormat = "pdf" | "docx" | "xlsx" | "csv" | "json";
+
+// Export the Archive over an inclusive approval-date range. The UI's year /
+// month-range / date-range choices all collapse to a pair of dates here.
+export async function downloadArchiveExport(opts: {
+  start: string; // "YYYY-MM-DD", inclusive
+  end: string; // "YYYY-MM-DD", inclusive
+  format: ExportFormat;
+  docType?: DocType; // omitted => every type
+}): Promise<void> {
+  const q = new URLSearchParams({ start: opts.start, end: opts.end });
+  if (opts.docType) q.set("doc_type", opts.docType);
+  return downloadFile(
+    `${API_BASE_URL}/exports/archive.${opts.format}?${q}`,
+    `archive_${opts.start}_${opts.end}.${opts.format}`,
+  );
 }
 
 // Authenticated download: plain <a href> can't carry the session token, so
