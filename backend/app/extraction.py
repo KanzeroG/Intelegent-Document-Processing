@@ -15,7 +15,7 @@ model-load screen). The OpenAI-compatible API has no per-request context knob.
 Indonesian number gotcha (the central accuracy risk): amounts print as
 `Rp 240.000`, where `.` is a *thousands separator*. Vision models love to read
 this as the decimal `240`, and because the mistake is consistent across
-subtotal/tax/total the figures still reconcile internally — so validation can't
+subtotal/tax/total the figures still reconcile internally - so validation can't
 catch it. The only effective fix is the prompt, so we instruct the model
 explicitly and give a worked example.
 """
@@ -35,7 +35,7 @@ from .schemas import Document, DocumentType
 # A profile is one servable vision model: where it lives, what the server calls
 # it, and how it has to be driven. Both LM Studio and Ollama speak the same
 # OpenAI-compatible chat-completions API, so nothing below the transport differs
-# — which is why one client covers both.
+# - which is why one client covers both.
 
 
 @dataclass(frozen=True)
@@ -77,7 +77,7 @@ MODEL_PROFILES: dict[str, ModelProfile] = {
         label="Qwen3-VL-4B · LM Studio",
         url=LM_STUDIO_URL,
         model=MODEL_NAME,
-        # Instruct variant — no thinking tokens to suppress. Left overridable
+        # Instruct variant - no thinking tokens to suppress. Left overridable
         # anyway so a Thinking build can be driven without a code change.
         reasoning_effort=REASONING_EFFORT,
     ),
@@ -88,7 +88,7 @@ MODEL_PROFILES: dict[str, ModelProfile] = {
         model=os.getenv("MINICPM_MODEL", "minicpm-v4.6:q8_0"),
         # Thinking is ON by default here and dominates latency: measured ~2,100
         # reasoning tokens / 48s per document, vs ~180 tokens / 9s with it off.
-        # Ollama honours this only via reasoning_effort — `think: false` and
+        # Ollama honours this only via reasoning_effort - `think: false` and
         # chat_template_kwargs are silently ignored on its OpenAI endpoint.
         reasoning_effort="none",
     ),
@@ -106,8 +106,8 @@ MODEL_PROFILES: dict[str, ModelProfile] = {
         model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
         api_key_env="GEMINI_API_KEY",
         # Hosted: documents are sent to Google. This breaks two claims in
-        # BUSINESS_CASE.md — "compute cost ~0" (billed per token) and "data never
-        # leaves the machine" — so it is deliberately not the default.
+        # BUSINESS_CASE.md - "compute cost ~0" (billed per token) and "data never
+        # leaves the machine" - so it is deliberately not the default.
         remote=True,
     ),
 }
@@ -131,10 +131,10 @@ def _build_prompt(doc_type: DocumentType) -> str:
     return (
         "You are a precise document-extraction engine. Read the attached "
         f"{doc_type.value} image and extract its fields.\n\n"
-        "Return ONLY a single JSON object conforming to this JSON schema — no "
+        "Return ONLY a single JSON object conforming to this JSON schema - no "
         "markdown, no code fences, no commentary. YOUR OUTPUT MUST START WITH '{' AND END WITH '}':\n\n"
         f"{schema}\n\n"
-        "CRITICAL — Indonesian Rupiah amounts:\n"
+        "CRITICAL - Indonesian Rupiah amounts:\n"
         "- The '.' character is a THOUSANDS SEPARATOR, never a decimal point.\n"
         "- 'Rp 240.000' means 240000. 'Rp 26.400' means 26400. "
         "'Rp 1.250.000' means 1250000.\n"
@@ -145,7 +145,7 @@ def _build_prompt(doc_type: DocumentType) -> str:
         "- doc_number = the document identifier printed near the top, usually "
         "after 'No:' / 'No.' (e.g. INV-2026-001, PO-2026-014). Always capture it.\n"
         "- vendor = the 'From' / issuer party. buyer = the 'Bill To' / customer "
-        "party — capture it whenever it is printed (invoices, POs, and receipts "
+        "party - capture it whenever it is printed (invoices, POs, and receipts "
         "that show one); use null only if no buyer appears.\n"
         "- subtotal = sum of line totals before tax; tax_amount = PPN if shown "
         "(null on receipts); total_amount = grand total.\n"
@@ -204,8 +204,8 @@ def _unwrap_schema_echo(text: str) -> str:
 
     We hand the model `Document.model_json_schema()` and ask for an instance.
     Smaller models (minicpm-v4.6 does this consistently) instead mirror the
-    schema's own shape back — `{"$defs": …, "properties": {…values…},
-    "required": […], "title": "Invoice"}` — with the *correct* values nested one
+    schema's own shape back - `{"$defs": …, "properties": {…values…},
+    "required": […], "title": "Invoice"}` - with the *correct* values nested one
     level down under "properties".
 
     Document has no "properties" field, so a top-level "properties" holding
@@ -228,8 +228,8 @@ def _unwrap_schema_echo(text: str) -> str:
 def _ensure_doc_type(text: str, doc_type: DocumentType) -> str:
     """Supply doc_type when the model omits it from the object.
 
-    The caller's selection is authoritative — we overwrite the model's guess
-    regardless — so a missing doc_type should not fail validation. minicpm-v4.6
+    The caller's selection is authoritative - we overwrite the model's guess
+    regardless - so a missing doc_type should not fail validation. minicpm-v4.6
     stashes it under "$defs" instead of the object, which would otherwise cost us
     an entire extraction whose other fields parsed fine.
     """

@@ -1,5 +1,5 @@
 // Client-side mirror of backend/app/validation.py (rules 1-8) so the review
-// screen can show hints that appear/clear AS the reviewer types — exactly what
+// screen can show hints that appear/clear AS the reviewer types - exactly what
 // the backend will recompute when the correction is saved. Field names,
 // tolerances, and messages must stay in lockstep with validation.py.
 // (Rule 9, the per-field-confidence hook, is skipped: extraction never emits
@@ -13,7 +13,7 @@ export interface LiveIssue {
   message: string;
 }
 
-const RECONCILE_TOLERANCE = 1; // Rupiah — covers rounding
+const RECONCILE_TOLERANCE = 1; // Rupiah - covers rounding
 const PPN_RATE = 0.11;
 const PPN_TOLERANCE = 0.005; // ±0.5 percentage points
 
@@ -46,7 +46,7 @@ export function validateLive(doc: ExtractedDocument): LiveIssue[] {
     }
   }
 
-  // 3. subtotal + tax == total — an arithmetic contradiction is an error.
+  // 3. subtotal + tax == total - an arithmetic contradiction is an error.
   if (doc.subtotal !== null && doc.total_amount !== null) {
     const tax = doc.tax_amount ?? 0;
     if (Math.abs(doc.subtotal + tax - doc.total_amount) > RECONCILE_TOLERANCE) {

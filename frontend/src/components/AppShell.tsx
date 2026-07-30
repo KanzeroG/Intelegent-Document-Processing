@@ -6,6 +6,7 @@ import { API_BASE_URL, type Role } from "../api";
 const NAV: { to: string; label: string; icon: string; roles: Role[] }[] = [
   { to: "/upload", label: "Upload", icon: "upload_file", roles: ["user", "staff", "admin"] },
   { to: "/review", label: "Review Queue", icon: "fact_check", roles: ["staff", "admin"] },
+  { to: "/archive", label: "Archive", icon: "archive", roles: ["staff", "admin"] },
   { to: "/dashboard", label: "Dashboard", icon: "monitoring", roles: ["staff", "admin"] },
   { to: "/chat", label: "Assistant", icon: "forum", roles: ["user", "staff", "admin"] },
   { to: "/audit", label: "Audit Log", icon: "history", roles: ["admin"] },
@@ -132,7 +133,7 @@ export default function AppShell() {
           {profileOpen && (
             <div className="absolute bottom-full left-3 mb-2 w-56 rounded-2xl bg-surface-white p-2 shadow-lg border border-border-base z-50">
               <div className="px-3 py-3 border-b border-border-base mb-2">
-                <div className="font-semibold text-text-primary truncate">{user?.name ?? "—"}</div>
+                <div className="font-semibold text-text-primary truncate">{user?.name ?? "-"}</div>
                 <div className="text-xs text-on-surface-variant uppercase mt-0.5">{role}</div>
               </div>
               <button
@@ -160,7 +161,7 @@ export default function AppShell() {
             </div>
             {!isCollapsed && (
               <div className="flex-1 truncate">
-                <div className="text-sm font-semibold text-text-primary truncate">{user?.name ?? "—"}</div>
+                <div className="text-sm font-semibold text-text-primary truncate">{user?.name ?? "-"}</div>
               </div>
             )}
           </button>
@@ -176,7 +177,7 @@ export default function AppShell() {
           >
             <span className="material-symbols-outlined text-base shrink-0">cloud_off</span>
             <span className="min-w-0 flex-1 truncate">
-              Couldn't load documents — is the backend running at {API_BASE_URL}? ({loadError})
+              Couldn't load documents - is the backend running at {API_BASE_URL}? ({loadError})
             </span>
             <button onClick={() => void reload()} className="shrink-0 font-semibold hover:underline">
               Retry

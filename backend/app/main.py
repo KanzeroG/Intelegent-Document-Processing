@@ -9,7 +9,7 @@
 
 Extractions are cached in SQLite (see db.py) so re-opening the app doesn't
 re-run the vision model. Model access goes to the local LM Studio server
-(see extraction.py). React (Vite) is the only client — it never touches the
+(see extraction.py). React (Vite) is the only client - it never touches the
 model directly.
 """
 
@@ -195,7 +195,7 @@ async def extract(
     rec["uploaded_at"] = date.today().isoformat()
     rec["uploaded_by"] = user.email  # None for tokenless (X-Role fallback) callers
     rec["processing_time"] = duration
-    # Record which model produced this extraction — without it an A/B run can't
+    # Record which model produced this extraction - without it an A/B run can't
     # be attributed after the fact.
     profile = get_profile(model)
     rec["model"] = profile.key
@@ -313,7 +313,7 @@ def admin_update_settings(
     _: Role = Depends(require_admin),
 ) -> dict:
     """Update validation settings (admin only). Subsequent extractions/re-validations
-    pick these up via db.get_settings() — see validation.py."""
+    pick these up via db.get_settings() - see validation.py."""
     updates: dict = {}
     if body.ppn_rate is not None:
         updates["ppn_rate"] = max(0.0, min(1.0, body.ppn_rate))
@@ -417,7 +417,7 @@ def export_selected_csv(
     records = [by_id[i] for i in body.ids if i in by_id]
     if not records:
         raise HTTPException(status_code=404, detail="None of the selected documents were found.")
-    # Only approved documents are exportable — a document must clear human
+    # Only approved documents are exportable - a document must clear human
     # review before its data leaves the system.
     records = [r for r in records if r.get("status") == "approved"]
     if not records:
@@ -450,7 +450,7 @@ def export_archive(
     """Export the Archive over a date range, in the caller's chosen format.
 
     The Archive files documents by *approval* date, so that is what `start`/`end`
-    (both inclusive) filter on — the same axis the Archive UI groups by, which
+    (both inclusive) filter on - the same axis the Archive UI groups by, which
     means what you see on screen is what lands in the file. The year / month-range
     / date-range choices in the UI all reduce to a pair of dates here, so the
     backend needs one endpoint rather than three.
@@ -506,7 +506,7 @@ def export_archive(
 @app.post("/mock-api/ingest")
 def mock_ingest(payload: dict) -> dict:
     """Mock downstream system (e.g. an ERP). Accepts an approved document and
-    acknowledges receipt — stands in for a real integration."""
+    acknowledges receipt - stands in for a real integration."""
     return {
         "received": True,
         "doc_id": payload.get("doc_id"),
@@ -524,10 +524,10 @@ class PatchBody(BaseModel):
 @app.patch("/documents/{doc_id}")
 def patch_document(doc_id: str, body: PatchBody, user: AuthUser = Depends(get_current_user)) -> dict:
     # Review is a staff/admin responsibility. Only token-authenticated `user`
-    # callers are rejected — tokenless callers keep the original open behavior.
+    # callers are rejected - tokenless callers keep the original open behavior.
     if _is_scoped_user(user):
         raise HTTPException(status_code=403, detail="Reviewer (staff/admin) role required.")
-    # Deciding a document's fate — approve or reject — is the admin's call.
+    # Deciding a document's fate - approve or reject - is the admin's call.
     # Staff submit corrections (`data`), which re-derive the status from the
     # validation rules but never set it directly. Enforced here, not only by
     # hiding the buttons.
@@ -543,7 +543,7 @@ def patch_document(doc_id: str, body: PatchBody, user: AuthUser = Depends(get_cu
     was_approved = existing.get("status") == "approved"
 
     def approval_stamp(new_status: str) -> str | None | object:
-        """Timestamp of approval — the date the archive groups documents by.
+        """Timestamp of approval - the date the archive groups documents by.
 
         Stamped on the transition into `approved`, cleared when a document
         leaves that state (so a re-approval gets an accurate date), and left

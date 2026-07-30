@@ -1,7 +1,7 @@
 """Document loading: turn an uploaded PDF or image into a model-readable PNG.
 
 The vision model consumes a base64-encoded image. PDFs are rasterized to PNG
-with PyMuPDF — up to the first 5 pages, stitched vertically into one image so a
+with PyMuPDF - up to the first 5 pages, stitched vertically into one image so a
 multi-page document is read in a single pass; image uploads are normalized to
 PNG via Pillow so the model always receives a consistent format.
 
@@ -23,7 +23,7 @@ from PIL import Image
 # Higher (4.0) gave no gain and cost more tokens/time on the 16GB target machine.
 #
 # Overridable so the zoom/latency/accuracy trade-off can be swept against the
-# eval harness — the current model (qwen3-vl-4b) reads better than the qwen2.5vl
+# eval harness - the current model (qwen3-vl-4b) reads better than the qwen2.5vl
 # this was tuned for, and latency scales with pixel count.
 _PDF_ZOOM = float(os.getenv("PDF_ZOOM", "3.0"))
 

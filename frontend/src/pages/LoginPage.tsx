@@ -1,7 +1,7 @@
 // Login screen (DocExtract). Split layout: navy hero on the left, sign-in card
 // on the right. Credentials are checked by the backend (/auth/login), which
 // issues the session token; the role tabs just quick-fill the matching demo
-// account — the server decides the actual role.
+// account - the server decides the actual role.
 
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -43,7 +43,7 @@ export default function LoginPage() {
       signIn({ token: res.token, email: res.email, name: res.name, role: res.role });
       navigate(roleHome(res.role));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign-in failed — try again.");
+      setError(err instanceof Error ? err.message : "Sign-in failed - try again.");
     } finally {
       setPending(false);
     }

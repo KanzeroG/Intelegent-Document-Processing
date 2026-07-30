@@ -3,8 +3,8 @@
 POST /auth/login (see main.py) checks the demo user table below and returns an
 HMAC-signed token; the SPA sends it on every request as
 `Authorization: Bearer <token>`. Requests WITHOUT a token keep the original
-stubbed behavior — role read from the `X-Role` header, defaulting to the
-least-privileged role — so curl scripts and plain <a href> downloads (which
+stubbed behavior - role read from the `X-Role` header, defaulting to the
+least-privileged role - so curl scripts and plain <a href> downloads (which
 cannot carry headers) keep working unchanged.
 
 Role responsibilities (see CLAUDE.md):
@@ -44,7 +44,7 @@ class AuthUser(BaseModel):
     role: Role
 
 
-# Signing secret — override via env for anything beyond local demo use.
+# Signing secret - override via env for anything beyond local demo use.
 _SECRET = os.getenv("AUTH_SECRET", "docextract-dev-secret").encode()
 
 
@@ -99,7 +99,7 @@ def get_current_user(
 ) -> AuthUser:
     """FastAPI dependency: resolve the caller.
 
-    A Bearer token wins and must be valid — an invalid/expired token is a 401
+    A Bearer token wins and must be valid - an invalid/expired token is a 401
     rather than a silent downgrade to `user`, which would otherwise surface as
     a confusing 403 on admin routes. Without a token we keep the original
     stubbed X-Role behavior (unknown/missing -> least-privileged role).

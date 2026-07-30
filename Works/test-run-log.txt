@@ -1,0 +1,117 @@
+DocExtract - automated test run
+Run at: 2026-07-30 01:13:23 WIB
+Host: MacBook-Air-Fadhil.local
+
+PHASE 1 - read-only, against the real backend (http://localhost:8000)
+PHASE 2 - destructive, against a COPY of the database (http://localhost:8001)
+          The real data/docextract.db is never opened by the phase 2 process.
+
+============================================================
+PHASE 1
+============================================================
+
+== API Authorisation ==
+  PASS  GET /documents only returns the caller's own uploads
+  PASS  Another uploader's document 404s rather than 403s
+  PASS  PATCH /documents/{id} with a status is refused for staff
+  PASS  PATCH /documents/{id} with data only succeeds for staff
+  PASS  DELETE /documents/{id} is refused for staff
+  PASS  PATCH with a status succeeds for admin
+  (throwaway document deleted)
+  PASS  GET /admin/settings is refused for staff
+  PASS  GET /audit is refused for staff
+  PASS  POST /eval/run is refused for staff
+
+== Validation ==
+  PASS  Missing vendor raises an ERROR (required field)
+  PASS  Missing total_amount raises an ERROR (required field)
+  PASS  Missing doc_number raises a WARNING, not an error
+  PASS  Line items that do not sum to subtotal raise a WARNING
+  PASS  subtotal + tax != total raises an ERROR
+  PASS  Reconcile tolerance of 1 Rupiah is respected
+  PASS  PPN within 11% +/- 0.5pp raises no warning
+  PASS  PPN outside the tolerance raises a WARNING
+  PASS  A receipt carrying a separate tax line raises a WARNING
+  PASS  A date not in YYYY-MM-DD raises a WARNING
+  PASS  A well-formed but impossible date raises a WARNING
+  PASS  A currency that is not a 3-letter code raises a WARNING
+  PASS  qty x unit_price != line_total raises a per-line WARNING
+  PASS  Low per-field extraction confidence raises a WARNING
+  PASS  Status is derived from the worst issue severity
+
+== Archive Export ==
+  PASS  Downloaded filename encodes the range
+  SKIP  PDF paginates across pages for a large range
+         Could not be exercised: the whole archive is 14 documents, which fits on one page (the export produced 1 page).
+  PASS  Word export carries a bold TOTAL row
+  PASS  Excel amounts are real numbers, not text
+  PASS  Excel has a second Line Items sheet keyed to each document
+  PASS  CSV opens correctly in Excel with Indonesian characters
+  PASS  CSV column order matches ground_truth.csv
+  PASS  JSON export is an array including approved_at
+  PASS  Type filter narrows the exported file
+  PASS  User role is blocked from the export API
+  PASS  Only approved documents are exported
+
+== Error handling / guards ==
+  PASS  Unsupported export format is refused
+  PASS  Malformed or reversed date range is refused
+  PASS  An empty range returns a clear error
+
+=== 38 dijalankan | 37 Pass | 0 Fail ===
+written: /private/tmp/claude-501/-Users-fadhilfalih-Documents-Intelegence-R/8a73b2aa-e19b-4a17-8ad7-5dcb850080bd/scratchpad/results.json
+
+============================================================
+PHASE 2
+============================================================
+
+== Isolation check ==
+  OK: created a user on 8001; real instance users = ['admin@demo', 'staff@demo', 'user@demo']
+
+== Approval ==
+  PASS  Approving stamps approved_at and files the document in the Archive
+  PASS  Un-approving clears approved_at
+  PASS  Admin rejects a document
+  PASS  Admin deletes a document
+
+== Review ==
+  PASS  Staff corrects a field and saves the correction
+
+== Validation (via the API) ==
+  PASS  Subtotal + tax that does not reconcile to the total is flagged
+  PASS  Line items that do not sum to the subtotal are flagged
+  PASS  A PPN rate outside the configured range raises a warning
+
+== Admin users ==
+  PASS  Admin creates a new user and then deletes it
+  PASS  Admin cannot delete their own account
+  PASS  Creating a duplicate email is refused
+
+== Audit ==
+  PASS  A failed login is recorded
+
+== Exports ==
+  PASS  Export a single approved document to CSV
+  PASS  Export a single approved document to JSON
+  PASS  Bulk CSV export of selected rows
+  PASS  Bulk export of unapproved rows is refused
+  PASS  Export the range as Word (.docx)
+  PASS  Export the range as Excel (.xlsx)
+  PASS  Export the range as CSV
+  PASS  Export the range as JSON
+
+== Integration ==
+  PASS  Approved document is posted to the mock downstream API
+
+== Extraction (shape checks on stored records) ==
+  PASS  line_item_count matches the number of line items returned
+  PASS  Currency defaults to IDR when not printed
+  PASS  User only sees their own documents
+  PASS  User can open their own document read-only
+
+== Not exercised ==
+  SKIP  Only one evaluation can run at a time
+         Not exercised: triggering it would run the vision model over the whole 60-document corpus, which takes far longer than this run allows.
+
+=== 26 dijalankan | 25 Pass | 0 Fail | 1 skip ===
+written: /private/tmp/claude-501/-Users-fadhilfalih-Documents-Intelegence-R/8a73b2aa-e19b-4a17-8ad7-5dcb850080bd/scratchpad/results2.json

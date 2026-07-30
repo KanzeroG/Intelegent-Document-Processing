@@ -14,6 +14,7 @@ import UploadPage from "./pages/UploadPage";
 import ReviewQueuePage from "./pages/ReviewQueuePage";
 import ReviewPage from "./pages/ReviewPage";
 import DashboardPage from "./pages/DashboardPage";
+import ArchivePage, { ArchiveMonthPage } from "./pages/ArchivePage";
 import ChatPage from "./pages/ChatPage";
 import AuditPage from "./pages/AuditPage";
 import PerformancePage from "./pages/PerformancePage";
@@ -51,6 +52,24 @@ export default function App() {
           element={
             <RequireRole allow={["staff", "admin"]}>
               <DashboardPage />
+            </RequireRole>
+          }
+        />
+        {/* Archive: approved documents by month/day. Reviewers only - a `user`
+            sees their own results on Upload, not the sign-off record. */}
+        <Route
+          path="/archive"
+          element={
+            <RequireRole allow={["staff", "admin"]}>
+              <ArchivePage />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/archive/:year/:month"
+          element={
+            <RequireRole allow={["staff", "admin"]}>
+              <ArchiveMonthPage />
             </RequireRole>
           }
         />

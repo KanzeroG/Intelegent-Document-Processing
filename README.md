@@ -27,7 +27,7 @@ development run everything locally. The frontend's API URL is configurable via
 
 Working end-to-end: **upload → extract → validate → review/correct → approve →
 archive**, with a full UI (login, upload, review, archive, dashboard, chat).
-Staff correct and reject; **only an admin approves** — approval stamps
+Staff correct and reject; **only an admin approves** - approval stamps
 `approved_at`, hands the document to the mock downstream API, and files it in
 the Archive. Extractions are
 **cached in SQLite** (`data/docextract.db`) with the original file, so re-opening
@@ -38,7 +38,7 @@ the app doesn't re-run the model.
 - **Hybrid RAG Chat Assistant:** Ask questions about your documents (e.g., "What's the total tax?"). Uses full-context injection for small datasets (<= 60 docs) and Vector Search (Cosine Similarity via LM Studio embeddings) for large datasets (60+ docs) to keep RAM usage low and safe.
 - **Persistent Chat History:** Chat sessions are saved in SQLite with automatic AI-generated session titles based on your first question.
 - **Admin Document Management:** Admins can permanently delete unwanted/test documents from the database, preventing storage bloat.
-- **Archive (staff/admin):** Approved documents are filed by approval date — a year of 12 month cards (`/archive`) drills into one month (`/archive/:year/:month`), where each day is a collapsible group listing Doc ID, name, type and a View action. Filters (date, type, name/ID) jump straight to the day that owns a date, even in another month.
+- **Archive (staff/admin):** Approved documents are filed by approval date - a year of 12 month cards (`/archive`) drills into one month (`/archive/:year/:month`), where each day is a collapsible group listing Doc ID, name, type and a View action. Filters (date, type, name/ID) jump straight to the day that owns a date, even in another month.
 - **Archive range export:** From the year bar, export the Archive over a whole year, a range of months, or an arbitrary date range (optionally narrowed to one document type) as **PDF, Word (.docx), Excel (.xlsx), CSV or JSON**. PDF/Word give a formatted report with a totals row; Excel adds a second sheet of line items; CSV/JSON stay machine-readable (ground-truth columns). Every export is attributed in the audit trail.
 
 API: `POST /extract` (extract + persist), `GET /documents`, `GET /documents/{id}`,
@@ -57,7 +57,7 @@ cd backend
 ./.venv/bin/python evaluate.py --ids DOC-001,DOC-026
 ```
 Prints per-field accuracy + writes `data/eval_results.csv`. Admins can also run
-it from the Dashboard ("Model Accuracy" card) — a background run with live
+it from the Dashboard ("Model Accuracy" card) - a background run with live
 progress and per-type results.
 
 ### Cost-benefit business case (deliverable #6)
@@ -96,7 +96,7 @@ npm run dev                             # serves on http://localhost:5173
 Open http://localhost:5173, pick a document and its type, and click **Extract**.
 The source document shows on the left, the extracted fields (and any validation
 flags) on the right. Use the **Role** switcher (user/staff/admin) to exercise the
-stubbed auth — staff/admin views are placeholders for now.
+stubbed auth - staff/admin views are placeholders for now.
 
 ## Repo layout
 
@@ -108,11 +108,11 @@ notebooks/     dataset exploration + evaluation harness (later)
 ```
 
 ## Notes & gotchas
-- **The vision model is the OCR** — no separate OCR engine in the main path.
+- **The vision model is the OCR** - no separate OCR engine in the main path.
 - **Indonesian numbers**: `Rp 240.000` (dots = thousands) is handled by an explicit
   prompt instruction + worked example, so it returns `240000`, not `240`. This is the
   single biggest accuracy risk; PDFs are rendered at zoom 3.0 so small digits read cleanly.
-- **Context size**: a document image needs `num_ctx` ≈ 16384 in Ollama — the default
+- **Context size**: a document image needs `num_ctx` ≈ 16384 in Ollama - the default
   4096 overflows and 400s.
 - Dates normalize to `YYYY-MM-DD`; currency defaults to `IDR`. PPN is 11% on invoices/POs.
-- React never touches the model directly — only FastAPI does.
+- React never touches the model directly - only FastAPI does.

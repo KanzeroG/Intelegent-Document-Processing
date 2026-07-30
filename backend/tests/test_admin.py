@@ -2,8 +2,8 @@
 
 DB-touching tests run against an isolated temp database (monkeypatched
 `db._DB_PATH`) so they never touch the real data/docextract.db. Admin auth uses
-the X-Role header stub — get_current_user falls back to it when there's no token
-— except the self-delete guard, which needs a token-borne identity (email).
+the X-Role header stub - get_current_user falls back to it when there's no token
+- except the self-delete guard, which needs a token-borne identity (email).
 
 Run from the backend/ directory:
     ./.venv/bin/python -m pytest tests/test_admin.py -q
@@ -117,7 +117,7 @@ def test_create_user_then_login(client):
     )
     assert r.status_code == 200
     assert r.json()["email"] == "new@demo"  # normalized
-    # New credentials work end-to-end through the real login endpoint — proves the
+    # New credentials work end-to-end through the real login endpoint - proves the
     # password was hashed on write and verified on read.
     login = client.post("/auth/login", json={"email": "new@demo", "password": "pw12345"})
     assert login.status_code == 200
@@ -159,3 +159,64 @@ def test_cannot_delete_own_account(client):
     r = client.delete("/admin/users/admin@demo", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 400
     assert db.get_user("admin@demo") is not None  # still there
+
+
+# --- Approval: admin-only sign-off + the Archive timestamp -------------------
+
+STAFF = {"X-Role": "staff"}
+
+
+def _seed_doc(doc_id: str = "doc-1", status: str = "extracted") -> None:
+    """Insert a minimal record straight into the DB (no model call involved)."""
+    db.insert_document(
+        {
+            "id": doc_id,
+            "doc_number": "INV-001",
+            "doc_type": "invoice",
+            "filename": "INV-001.pdf",
+            "mime": "application/pdf",
+            "uploaded_at": "2026-07-01",
+            "status": status,
+            "confidence": 90,
+            "data": {"doc_type": "invoice", "currency": "IDR", "line_items": []},
+            "issues": [],
+            "uploaded_by": "user@demo",
+        },
+        b"%PDF-",
+    )
+
+
+def test_staff_may_only_correct_not_decide(client):
+    _seed_doc()
+    for decision in ("approved", "rejected"):
+        denied = client.patch("/documents/doc-1", headers=STAFF, json={"status": decision})
+        assert denied.status_code == 403
+        assert db.get_document("doc-1")["status"] == "extracted"
+
+    # Corrections are staff's job, and they still go through.
+    corrected = client.patch(
+        "/documents/doc-1",
+        headers=STAFF,
+        json={"data": {"doc_type": "invoice", "vendor": "PT Baru", "currency": "IDR", "line_items": []}},
+    )
+    assert corrected.status_code == 200
+    assert corrected.json()["data"]["vendor"] == "PT Baru"
+
+
+def test_admin_approval_stamps_approved_at(client):
+    _seed_doc("doc-2")
+    r = client.patch("/documents/doc-2", headers=ADMIN, json={"status": "approved"})
+    assert r.status_code == 200
+    # The stamp is what the Archive groups by, so it must be a real timestamp.
+    stamped = r.json()["approved_at"]
+    assert stamped and stamped.startswith("20")
+
+
+def test_leaving_approved_clears_the_stamp(client):
+    _seed_doc("doc-3")
+    client.patch("/documents/doc-3", headers=ADMIN, json={"status": "approved"})
+    assert db.get_document("doc-3")["approved_at"] is not None
+    # Un-approving must drop the document out of the Archive, not leave a
+    # stale date behind for a re-approval to inherit.
+    client.patch("/documents/doc-3", headers=ADMIN, json={"status": "rejected"})
+    assert db.get_document("doc-3")["approved_at"] is None

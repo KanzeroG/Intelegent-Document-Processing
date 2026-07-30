@@ -1,4 +1,4 @@
-"""Shared evaluation logic — used by both the CLI (evaluate.py) and the admin
+"""Shared evaluation logic - used by both the CLI (evaluate.py) and the admin
 web endpoint. Runs documents through extraction, compares every field to
 Source/ground_truth.csv, and produces a per-field / per-type accuracy summary.
 

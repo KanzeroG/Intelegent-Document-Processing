@@ -5,7 +5,7 @@ The real dataset lives in [`../Source`](../Source): 60 sample PDFs under
 `Source/ground_truth.csv` with the labelled fields.
 
 This `data/` folder holds only runtime artifacts:
-- `uploads/` — files written during a session. Git-ignored (only `.gitkeep` tracked).
+- `uploads/` - files written during a session. Git-ignored (only `.gitkeep` tracked).
 
 ## `ground_truth.csv` schema (the extraction contract)
 Pydantic field names in `backend/app/schemas.py` mirror these columns so the

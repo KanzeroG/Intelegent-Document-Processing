@@ -1,4 +1,4 @@
-"""Intelligent Document Processing — FastAPI backend package."""
+"""Intelligent Document Processing - FastAPI backend package."""
 
 from __future__ import annotations
 

@@ -5,7 +5,7 @@ the labelled ground truth, reporting per-field accuracy so you can see exactly
 where the model is strong or weak. Shares its logic with the admin web endpoint
 (see app/evaluation.py).
 
-Run it yourself (a model server must be up — LM Studio by default):
+Run it yourself (a model server must be up - LM Studio by default):
 
     cd backend
     ./.venv/bin/python evaluate.py            # all 60 docs (~30 min on 16GB)
@@ -13,14 +13,14 @@ Run it yourself (a model server must be up — LM Studio by default):
     ./.venv/bin/python evaluate.py --ids DOC-001,DOC-026
 
 To benchmark a different model, select a profile by key (see
-extraction.MODEL_PROFILES) — endpoint, model id and per-model quirks come with it:
+extraction.MODEL_PROFILES) - endpoint, model id and per-model quirks come with it:
 
     DEFAULT_MODEL=minicpm ./.venv/bin/python evaluate.py --limit 5
     DEFAULT_MODEL=gemini  ./.venv/bin/python evaluate.py --limit 5
 
 Do NOT use MODEL_NAME for this. It renames the model *within* the qwen profile
 (for when LM Studio lists it under a different id), and the Assistant follows it
-by design — so repurposing it for an A/B would repoint chat at a model LM Studio
+by design - so repurposing it for an A/B would repoint chat at a model LM Studio
 has not loaded.
 
 Writes a per-document CSV and prints a summary table.

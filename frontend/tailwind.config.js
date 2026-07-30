@@ -1,4 +1,4 @@
-/** DocExtract design system — tokens ported from the Stitch export. */
+/** DocExtract design system - tokens ported from the Stitch export. */
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],

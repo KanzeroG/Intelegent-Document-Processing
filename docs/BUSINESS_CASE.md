@@ -1,7 +1,7 @@
-# Cost-Benefit Business Case — Intelligent Document Processing (Deliverable #6)
+# Cost-Benefit Business Case - Intelligent Document Processing (Deliverable #6)
 
 **Question:** Is automating invoice / PO / receipt data entry with a local
-vision model cheaper than manual keying — and if so, by how much?
+vision model cheaper than manual keying - and if so, by how much?
 
 This case uses the same model as the live **ROI calculator** on the admin
 Dashboard, so the numbers below can be reproduced and adjusted in the app.
@@ -36,7 +36,7 @@ automated_cost = (volume * needs_review_fraction) * (review_minutes / 60) * rate
 Model inference runs **locally** (LM Studio on existing hardware), so per-document
 compute cost is treated as ~0.
 
-`needs_review_fraction` is not a guess — the Dashboard drives it from the **real
+`needs_review_fraction` is not a guess - the Dashboard drives it from the **real
 accuracy evaluation** (`data/eval_summary.json`): the share of documents that
 were *not* fully correct against `ground_truth.csv`. If no eval has run, it
 falls back to a conservative 20%.
@@ -52,18 +52,18 @@ falls back to a conservative 20%.
 - **Savings ≈ Rp 4,500,000 / month (~90%)**, ≈ Rp 54,000,000 / year.
 - **Payback** on the Rp 15,000,000 setup: **~3.3 months**.
 
-Even at a pessimistic 50% review rate, automated cost is Rp 1,250,000/mo — still a
+Even at a pessimistic 50% review rate, automated cost is Rp 1,250,000/mo - still a
 75% reduction.
 
 ## Beyond direct cost
 
 - **Speed:** ~seconds/doc extraction + targeted review vs. minutes of full keying → faster close.
 - **Accuracy & auditability:** validation rules catch arithmetic/format errors a human might miss; every field is traceable to the source document in the review screen.
-- **Scalability:** cost grows only with the *review* fraction, not total volume — the automated line scales far better as volume rises.
+- **Scalability:** cost grows only with the *review* fraction, not total volume - the automated line scales far better as volume rises.
 - **Data privacy:** the model runs on-premise; sensitive Indonesian financial data never leaves the machine.
 
 ## Caveats
 
-- Figures are **illustrative defaults** — tune them to the client's real volume, wages, and measured review rate.
+- Figures are **illustrative defaults** - tune them to the client's real volume, wages, and measured review rate.
 - `needs_review_fraction` should come from a full 60-doc (or larger) evaluation run, not a small sample.
 - Setup cost and staff rates vary by organization; the dashboard makes all of these adjustable so stakeholders can stress-test the case live.

@@ -2,7 +2,7 @@
 
 Caches each extraction (structured data + validation issues + the original file)
 so re-opening the app doesn't re-run the vision model. Deliberately uses the
-stdlib `sqlite3` — no extra dependency, and plenty for a local single-user tool.
+stdlib `sqlite3` - no extra dependency, and plenty for a local single-user tool.
 
 `data` and `issues` are stored as JSON text; the uploaded file is stored as a
 BLOB so document previews survive reloads.
@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS documents (
     uploaded_by  TEXT,   -- email of the signed-in uploader; NULL for tokenless calls
     processing_time REAL, -- model processing speed in seconds
     model        TEXT,   -- extraction model profile key (see extraction.MODEL_PROFILES)
+    approved_at  TEXT,   -- when an admin approved it (ISO); NULL until approved
     file         BLOB
 );
 """
@@ -83,6 +84,10 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 );
 """
 
+# Marker for "caller didn't pass this field" in update_document(), where None is
+# itself a value the caller may want to write.
+UNSET = object()
+
 _DEFAULT_SETTINGS = {
     "ppn_rate": "0.11",
     "reconcile_tolerance": "1",
@@ -98,7 +103,7 @@ _DEFAULT_USERS = {
 # Columns returned to the frontend (everything except the file blob).
 _META_COLS = (
     "id, doc_number, doc_type, filename, mime, uploaded_at, status, confidence, "
-    "data, issues, uploaded_by, processing_time, model"
+    "data, issues, uploaded_by, processing_time, model, approved_at"
 )
 
 
@@ -130,7 +135,7 @@ def init_db() -> None:
             )
 
         # Additive migration: databases created before the auth feature lack the
-        # uploaded_by column. Idempotent — safe to run on every startup.
+        # uploaded_by column. Idempotent - safe to run on every startup.
         cols = {row["name"] for row in conn.execute("PRAGMA table_info(documents)")}
         if "uploaded_by" not in cols:
             conn.execute("ALTER TABLE documents ADD COLUMN uploaded_by TEXT")
@@ -138,6 +143,18 @@ def init_db() -> None:
             conn.execute("ALTER TABLE documents ADD COLUMN processing_time REAL")
         if "model" not in cols:
             conn.execute("ALTER TABLE documents ADD COLUMN model TEXT")
+        if "approved_at" not in cols:
+            conn.execute("ALTER TABLE documents ADD COLUMN approved_at TEXT")
+            # Backfill rows approved before this column existed, so the archive
+            # isn't empty on an existing database. The audit trail is the only
+            # record of *when* they were approved; fall back to upload time.
+            conn.execute(
+                "UPDATE documents SET approved_at = COALESCE("
+                "  (SELECT MAX(a.ts) FROM audit_log a"
+                "    WHERE a.doc_id = documents.id AND a.action = 'approve'),"
+                "  uploaded_at) "
+                "WHERE status = 'approved' AND approved_at IS NULL"
+            )
 
 
 def _row_to_record(row: sqlite3.Row) -> dict[str, Any]:
@@ -156,6 +173,7 @@ def _row_to_record(row: sqlite3.Row) -> dict[str, Any]:
         "uploaded_by": row["uploaded_by"],
         "processing_time": row["processing_time"],
         "model": row["model"],
+        "approved_at": row["approved_at"],
     }
 
 
@@ -166,7 +184,7 @@ def insert_document(rec: dict[str, Any], file_bytes: bytes) -> None:
             f"INSERT INTO documents ({_META_COLS}, file) "
             "VALUES (:id, :doc_number, :doc_type, :filename, :mime, :uploaded_at, "
             ":status, :confidence, :data, :issues, :uploaded_by, :processing_time, "
-            ":model, :file)",
+            ":model, :approved_at, :file)",
             {
                 "id": rec["id"],
                 "doc_number": rec.get("doc_number"),
@@ -181,6 +199,7 @@ def insert_document(rec: dict[str, Any], file_bytes: bytes) -> None:
                 "uploaded_by": rec.get("uploaded_by"),
                 "processing_time": rec.get("processing_time"),
                 "model": rec.get("model"),
+                "approved_at": rec.get("approved_at"),
                 "file": file_bytes,
             },
         )
@@ -273,8 +292,14 @@ def update_document(
     issues: list[dict[str, Any]] | None = None,
     status: str | None = None,
     confidence: int | None = None,
+    approved_at: str | None | object = UNSET,
 ) -> bool:
-    """Patch mutable fields of a record. Returns False if the id is unknown."""
+    """Patch mutable fields of a record. Returns False if the id is unknown.
+
+    Every field defaults to "leave alone". `approved_at` needs a sentinel rather
+    than `None` for that, because clearing it (un-approving a document) is a
+    meaningful update - `approved_at=None` writes NULL.
+    """
     sets: list[str] = []
     params: dict[str, Any] = {"id": doc_id}
     if data is not None:
@@ -289,6 +314,9 @@ def update_document(
     if confidence is not None:
         sets.append("confidence = :confidence")
         params["confidence"] = confidence
+    if approved_at is not UNSET:
+        sets.append("approved_at = :approved_at")
+        params["approved_at"] = approved_at
     if not sets:
         return True
     with _connect() as conn:

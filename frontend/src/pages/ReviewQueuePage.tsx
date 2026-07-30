@@ -327,7 +327,7 @@ export default function ReviewQueuePage() {
                     <td className="max-w-[260px] truncate px-5 py-3 text-text-primary">{d.fileName}</td>
                     <td className="px-5 py-3 text-on-surface-variant">{DOC_TYPE_LABEL[d.docType]}</td>
                     <td className="whitespace-nowrap px-5 py-3 text-on-surface-variant">{formatDateTime(d.uploadedAt)}</td>
-                    {showUploader && <td className="whitespace-nowrap px-5 py-3 text-on-surface-variant">{d.uploadedBy ?? "—"}</td>}
+                    {showUploader && <td className="whitespace-nowrap px-5 py-3 text-on-surface-variant">{d.uploadedBy ?? "-"}</td>}
                     <td className="px-5 py-3"><StatusBadge status={d.status} /></td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-4 items-center">

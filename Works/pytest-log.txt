@@ -1,0 +1,25 @@
+DocExtract - backend unit/integration test suite (pytest)
+Dijalankan: 2026-07-29 15:27:46 WIB
+Perintah: cd backend && .venv/bin/python -m pytest -q
+
+============================================================
+........................................................................ [ 61%]
+.............................................                            [100%]
+.venv/lib/python3.14/site-packages/fastapi/testclient.py:1
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+<frozen importlib._bootstrap>:491
+<frozen importlib._bootstrap>:491
+
+<frozen importlib._bootstrap>:491
+<frozen importlib._bootstrap>:491
+
+<frozen importlib._bootstrap>:491
+
+  
+          
+
+  
+          
+
+117 passed, 8 warnings in 1.08s

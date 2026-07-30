@@ -1,4 +1,4 @@
-// Thin client for the FastAPI backend. The frontend is presentation only —
+// Thin client for the FastAPI backend. The frontend is presentation only -
 // it never talks to the model directly, only to this backend over HTTP.
 
 import { clearAuth, emitUnauthorized, loadAuth } from "./lib/auth";
@@ -68,7 +68,7 @@ export interface ModelOption {
   default_chat: boolean; // backend's fallback for /chat
 }
 
-// URL to the stored original file (for preview) — served by the backend.
+// URL to the stored original file (for preview) - served by the backend.
 export function fileUrl(id: string): string {
   return `${API_BASE_URL}/documents/${encodeURIComponent(id)}/file`;
 }
@@ -83,7 +83,7 @@ function authHeaders(): Record<string, string> {
 
 async function unwrap<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    // A 401 while holding a session means the token is invalid/expired —
+    // A 401 while holding a session means the token is invalid/expired -
     // drop it and let the store bounce to /login. (Failed /auth/login calls
     // happen without a stored session, so they don't trip this.)
     if (res.status === 401 && loadAuth()) {
@@ -132,7 +132,7 @@ export async function listModels(): Promise<ModelOption[]> {
   return unwrap<ModelOption[]>(await fetch(`${API_BASE_URL}/models`, { headers: authHeaders() }));
 }
 
-// POST a document to /extract — extracts, validates, persists, returns the record.
+// POST a document to /extract - extracts, validates, persists, returns the record.
 // `model` picks a vision model by key; omitted means the backend default.
 export async function extractDocument(
   file: File,
@@ -218,7 +218,7 @@ export async function downloadSelectedCsv(ids: string[], filename: string): Prom
 }
 
 // File formats the Archive export offers. Mirrors export.REPORT_FORMATS on the
-// backend — anything missing there comes back as a 400.
+// backend - anything missing there comes back as a 400.
 export type ExportFormat = "pdf" | "docx" | "xlsx" | "csv" | "json";
 
 // Export the Archive over an inclusive approval-date range. The UI's year /

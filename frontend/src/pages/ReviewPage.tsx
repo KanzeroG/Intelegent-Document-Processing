@@ -1,8 +1,13 @@
 // Review screen (human-in-the-loop): document preview on the left, editable
 // extracted fields + line items + validation rules on the right. Header fields
 // AND line items are correctable; validation hints re-run live as you type,
-// mirroring the backend rules that run again on save. Staff/admin can save,
-// approve, and reject; the `user` role gets a read-only view of their result.
+// mirroring the backend rules that run again on save.
+//
+// Roles: staff only correct; an admin also approves, rejects and deletes (the
+// sign-off that exports the document and files it in the Archive - enforced
+// backend-side in PATCH /documents/{id}, not just hidden here). The `user` role
+// gets a read-only view. For staff and admin alike the form stays locked until
+// "Correction" is pressed.
 
 import { useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
@@ -39,7 +44,7 @@ function ruleTitle(field: string, severity: string): string {
   const base = field.split("[")[0];
   if (base === "total_amount" && severity === "error") return "Calculation Mismatch";
   if (base === "line_items") return severity === "error" ? "Calculation Mismatch" : "Line Items Check";
-  if (severity === "error") return `Required Field — ${FIELD_LABEL[base] ?? base}`;
+  if (severity === "error") return `Required Field - ${FIELD_LABEL[base] ?? base}`;
   return `${FIELD_LABEL[base] ?? base} Check`;
 }
 
@@ -124,7 +129,7 @@ export default function ReviewPage() {
   }
 
   // Keying the editor by document id remounts it (fresh form state) whenever
-  // the reviewed document changes — no stale-form bugs when navigating between
+  // the reviewed document changes - no stale-form bugs when navigating between
   // records. Store updates to the SAME id (e.g. after Save) keep local edits.
   return <ReviewEditor key={rec.id} rec={rec} canEdit={canEdit} />;
 }
@@ -133,6 +138,16 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
   const navigate = useNavigate();
   const { replaceRecord, reload } = useDocuments();
   const { role } = useAuth();
+
+  // Approving is the admin's sign-off - and so are the decisions around it
+  // (reject, delete, exporting the file). Staff only correct.
+  const canApprove = role === "admin";
+
+  // Fields start locked even for reviewers: editing is a deliberate act, so a
+  // stray click on a form can't silently alter an extraction. "Correction"
+  // unlocks, "Save Correction" writes and locks again.
+  const [editing, setEditing] = useState(false);
+  const editable = canEdit && editing;
 
   const [form, setForm] = useState<ExtractedDocument>(rec.data);
   const [rowKeys, setRowKeys] = useState<string[]>(() => rec.data.line_items.map(newRowKey));
@@ -206,7 +221,7 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
     .map((f) => ({
       severity: "warning" as const,
       title: "Missing Information",
-      message: `${FIELD_LABEL[f] ?? f} is missing from extraction — manual entry required.`,
+      message: `${FIELD_LABEL[f] ?? f} is missing from extraction - manual entry required.`,
     }));
   const shownIssues = [
     ...liveIssues.map((i) => ({ severity: i.severity, title: ruleTitle(i.field, i.severity), message: i.message })),
@@ -222,7 +237,8 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
     setBusy(true);
     try {
       replaceRecord(await patchDocument(rec.id, { data: normalizedForm(form) }));
-      toast.success("Corrections saved");
+      toast.success("Correction saved");
+      setEditing(false); // saved -> back to the locked view
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -236,13 +252,19 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
     try {
       const updated = await patchDocument(rec.id, { data: normalizedForm(form), status: "approved" });
       replaceRecord(updated);
-      // Hand the approved data to the mock downstream API…
+      // Hand the approved data to the mock downstream API. No file download -
+      // the admin has the dedicated JSON/CSV buttons above for that.
       const ack = await mockIngest(updated);
-      // …and download the JSON export for the user (authenticated, so the
-      // export lands in the audit trail under the reviewer's name).
-      await downloadFile(exportJsonUrl(updated.id), `${docLabel(updated)}.json`);
-      toast.success(ack.message || "Approved & exported");
-      navigate("/upload");
+      toast.success(ack.message || "Approved");
+      // Approval files the document in the Archive; land the admin on exactly
+      // that day so they see the result of the sign-off. `approved_at` is
+      // stamped by the backend, so use what it returned (never "now" locally).
+      const filedOn = (updated.approved_at ?? "").slice(0, 10);
+      navigate(
+        filedOn
+          ? `/archive/${filedOn.slice(0, 4)}/${filedOn.slice(5, 7)}?date=${filedOn}&doc=${encodeURIComponent(updated.id)}`
+          : "/archive",
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Approve failed");
     } finally {
@@ -339,36 +361,46 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
             </div>
 
             <p className="mt-1 text-body-sm text-on-surface-variant">
-              Uploaded {formatDateTime(rec.uploadedAt)} by {rec.uploadedBy ?? "—"}
+              Uploaded {formatDateTime(rec.uploadedAt)} by {rec.uploadedBy ?? "-"}
             </p>
 
             {!canEdit && (
               <div className="mt-3 flex items-center gap-2 rounded-lg bg-surface-container-low px-3 py-2.5 text-body-sm text-on-surface-variant">
                 <span className="material-symbols-outlined text-base">visibility</span>
-                Read-only view — a staff member reviews and approves this document.
+                Read-only view - a reviewer corrects this document and an admin approves it.
+              </div>
+            )}
+
+            {/* Say why the fields don't respond, rather than leaving a reviewer
+                clicking at a greyed-out form. */}
+            {canEdit && !editing && (
+              <div className="mt-3 flex items-center gap-2 rounded-lg bg-surface-container-low px-3 py-2.5 text-body-sm text-on-surface-variant">
+                <span className="material-symbols-outlined text-base">lock</span>
+                Fields are locked - press <span className="font-semibold">Correction</span> to edit
+                them.
               </div>
             )}
 
             <div className="mt-4 text-label-sm uppercase text-on-surface-variant">Extracted Header Fields</div>
             <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Doc Number" k="doc_number" value={form.doc_number ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("doc_number")} disabled={!canEdit} />
-              <Field label="Vendor Name" k="vendor" value={form.vendor ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("vendor")} disabled={!canEdit} />
-              <Field label="Buyer" k="buyer" value={form.buyer ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("buyer")} disabled={!canEdit} />
-              <Field label="Date" k="doc_date" value={form.doc_date ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("doc_date")} disabled={!canEdit} />
-              <Field label="Currency" k="currency" value={form.currency ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("currency")} disabled={!canEdit} />
-              <NumField label="Subtotal" k="subtotal" value={form.subtotal} onChange={set} cls={fieldClass} missing={missingSet.has("subtotal")} disabled={!canEdit} />
-              <NumField label="Tax (PPN)" k="tax_amount" value={form.tax_amount} onChange={set} cls={fieldClass} missing={missingSet.has("tax_amount")} disabled={!canEdit} />
-              <NumField label="Total Amount" k="total_amount" value={form.total_amount} onChange={set} cls={fieldClass} missing={missingSet.has("total_amount")} disabled={!canEdit} />
+              <Field label="Doc Number" k="doc_number" value={form.doc_number ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("doc_number")} disabled={!editable} />
+              <Field label="Vendor Name" k="vendor" value={form.vendor ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("vendor")} disabled={!editable} />
+              <Field label="Buyer" k="buyer" value={form.buyer ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("buyer")} disabled={!editable} />
+              <Field label="Date" k="doc_date" value={form.doc_date ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("doc_date")} disabled={!editable} />
+              <Field label="Currency" k="currency" value={form.currency ?? ""} onChange={set} cls={fieldClass} missing={missingSet.has("currency")} disabled={!editable} />
+              <NumField label="Subtotal" k="subtotal" value={form.subtotal} onChange={set} cls={fieldClass} missing={missingSet.has("subtotal")} disabled={!editable} />
+              <NumField label="Tax (PPN)" k="tax_amount" value={form.tax_amount} onChange={set} cls={fieldClass} missing={missingSet.has("tax_amount")} disabled={!editable} />
+              <NumField label="Total Amount" k="total_amount" value={form.total_amount} onChange={set} cls={fieldClass} missing={missingSet.has("total_amount")} disabled={!editable} />
             </div>
           </div>
 
-          {/* Line items — editable (the core of the human-in-the-loop step) */}
+          {/* Line items - editable (the core of the human-in-the-loop step) */}
           <div className="rounded-lg border border-border-base bg-surface-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <div className="text-label-sm uppercase text-on-surface-variant">
                 Line Items ({form.line_items.length})
               </div>
-              {canEdit && (
+              {editable && (
                 <button
                   onClick={addItem}
                   className="flex items-center gap-1 text-body-sm font-semibold text-secondary hover:underline"
@@ -387,6 +419,9 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
                     <th className="w-20 py-1.5 pr-2 text-right">Qty</th>
                     <th className="w-32 py-1.5 pr-2 text-right">Unit Price</th>
                     <th className="w-32 py-1.5 text-right">Line Total</th>
+                    {/* The actions column is reserved by role, not by edit mode:
+                        adding a column on toggle shifts every header 40px and
+                        leaves the old text painted behind the new. */}
                     {canEdit && <th className="w-10 py-1.5" aria-label="Row actions" />}
                   </tr>
                 </thead>
@@ -396,7 +431,7 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
                       <td className="py-1.5 pr-2">
                         <input
                           value={li.description}
-                          disabled={!canEdit}
+                          disabled={!editable}
                           aria-label={`Line ${i + 1} description`}
                           onChange={(e) => updateItem(i, { description: e.target.value })}
                           className="h-9 w-full rounded-lg border border-border-base px-2 text-body-sm focus:border-secondary focus:outline-none disabled:border-transparent disabled:bg-transparent"
@@ -405,7 +440,7 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
                       <td className="py-1.5 pr-2">
                         <QtyCell
                           value={li.qty}
-                          disabled={!canEdit}
+                          disabled={!editable}
                           label={`Line ${i + 1} quantity`}
                           onChange={(v) => updateItem(i, { qty: v })}
                         />
@@ -413,7 +448,7 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
                       <td className="py-1.5 pr-2">
                         <NumCell
                           value={li.unit_price}
-                          disabled={!canEdit}
+                          disabled={!editable}
                           label={`Line ${i + 1} unit price`}
                           onChange={(v) => updateItem(i, { unit_price: v })}
                         />
@@ -421,7 +456,7 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
                       <td className="py-1.5">
                         <NumCell
                           value={li.line_total}
-                          disabled={!canEdit}
+                          disabled={!editable}
                           label={`Line ${i + 1} line total`}
                           flag={lineFlags[i]}
                           onChange={(v) => updateItem(i, { line_total: v })}
@@ -429,13 +464,15 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
                       </td>
                       {canEdit && (
                         <td className="py-1.5 text-center">
-                          <button
-                            onClick={() => removeItem(i)}
-                            aria-label={`Remove line item ${i + 1}`}
-                            className="grid h-8 w-8 place-items-center rounded text-on-surface-variant hover:bg-status-error/10 hover:text-status-error"
-                          >
-                            <span className="material-symbols-outlined text-base">delete</span>
-                          </button>
+                          {editable && (
+                            <button
+                              onClick={() => removeItem(i)}
+                              aria-label={`Remove line item ${i + 1}`}
+                              className="grid h-8 w-8 place-items-center rounded text-on-surface-variant hover:bg-status-error/10 hover:text-status-error"
+                            >
+                              <span className="material-symbols-outlined text-base">delete</span>
+                            </button>
+                          )}
                         </td>
                       )}
                     </tr>
@@ -443,7 +480,7 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
                   {form.line_items.length === 0 && (
                     <tr className="border-t border-border-base">
                       <td colSpan={canEdit ? 5 : 4} className="py-4 text-center text-on-surface-variant">
-                        No line items{canEdit ? " — add one if the document has an itemized table." : "."}
+                        No line items{editable ? " - add one if the document has an itemized table." : "."}
                       </td>
                     </tr>
                   )}
@@ -462,7 +499,7 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
                     {!sumOk && form.subtotal !== null && (
                       <tr>
                         <td colSpan={canEdit ? 5 : 4} className="pb-1 text-right text-status-warning">
-                          Doesn't match subtotal {formatNumber(form.subtotal)} — difference{" "}
+                          Doesn't match subtotal {formatNumber(form.subtotal)} - difference{" "}
                           {formatNumber(Math.abs(lineSum - form.subtotal))}
                         </td>
                       </tr>
@@ -492,7 +529,7 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
           {/* Actions */}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              {canEdit && (
+              {canApprove && (
                 <>
                   <button
                     onClick={() => void exportDoc("json")}
@@ -517,36 +554,50 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
             </div>
             {canEdit && (
               <div className="flex flex-wrap items-center gap-3">
-                {role === "admin" && (
+                {canApprove && (
+                  <>
+                    <button
+                      onClick={handleDelete}
+                      disabled={busy}
+                      className="flex items-center gap-1 rounded-lg border border-status-error/30 bg-status-error/10 px-4 py-2.5 font-semibold text-status-error hover:bg-status-error/20 disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-base">delete</span> Delete
+                    </button>
+                    <button
+                      onClick={reject}
+                      disabled={busy}
+                      className="flex items-center gap-1 rounded-lg border border-status-error px-4 py-2.5 font-semibold text-status-error hover:bg-status-error/5 disabled:opacity-50"
+                    >
+                      <span className="material-symbols-outlined text-base">cancel</span> Reject
+                    </button>
+                  </>
+                )}
+                {/* One button, two states: unlock the form, then write the
+                    corrections and lock it again. */}
+                <button
+                  onClick={() => (editing ? void save() : setEditing(true))}
+                  disabled={busy}
+                  className={[
+                    "flex items-center gap-1 rounded-lg px-4 py-2.5 font-semibold disabled:opacity-50",
+                    editing
+                      ? "border border-secondary bg-secondary/10 text-secondary hover:bg-secondary/20"
+                      : "border border-border-base text-text-primary hover:bg-surface-container",
+                  ].join(" ")}
+                >
+                  <span className="material-symbols-outlined text-base">
+                    {editing ? "save" : "edit"}
+                  </span>
+                  {editing ? (busy ? "Saving…" : "Save Correction") : "Correction"}
+                </button>
+                {canApprove && (
                   <button
-                    onClick={handleDelete}
+                    onClick={approve}
                     disabled={busy}
-                    className="flex items-center gap-1 rounded-lg border border-status-error/30 bg-status-error/10 px-4 py-2.5 font-semibold text-status-error hover:bg-status-error/20 disabled:opacity-50"
+                    className="rounded-lg bg-primary px-4 py-2.5 font-semibold text-white hover:bg-primary-container disabled:opacity-50"
                   >
-                    <span className="material-symbols-outlined text-base">delete</span> Delete
+                    {busy ? "Working…" : "Approve"}
                   </button>
                 )}
-                <button
-                  onClick={reject}
-                  disabled={busy}
-                  className="flex items-center gap-1 rounded-lg border border-status-error px-4 py-2.5 font-semibold text-status-error hover:bg-status-error/5 disabled:opacity-50"
-                >
-                  <span className="material-symbols-outlined text-base">cancel</span> Reject
-                </button>
-                <button
-                  onClick={save}
-                  disabled={busy}
-                  className="rounded-lg border border-border-base px-4 py-2.5 font-semibold text-text-primary disabled:opacity-50"
-                >
-                  Save Corrections
-                </button>
-                <button
-                  onClick={approve}
-                  disabled={busy}
-                  className="rounded-lg bg-primary px-4 py-2.5 font-semibold text-white hover:bg-primary-container disabled:opacity-50"
-                >
-                  {busy ? "Working…" : "Approve & Export"}
-                </button>
               </div>
             )}
           </div>
@@ -575,7 +626,7 @@ function Field({ label, k, value, onChange, cls, missing, disabled }: {
       <input
         value={value}
         disabled={disabled}
-        placeholder={missing ? "Missing — enter manually" : ""}
+        placeholder={missing ? "Missing - enter manually" : ""}
         onChange={(e) => onChange(k, e.target.value)}
         className={`${cls(k as string)} ${missing ? "border-status-warning placeholder:text-status-warning/70" : ""}`}
       />

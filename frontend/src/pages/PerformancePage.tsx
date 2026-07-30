@@ -31,7 +31,7 @@ export default function PerformancePage() {
   // Falls back to the raw key: documents extracted before a model was renamed
   // (or removed from the registry) still show something meaningful.
   const modelLabel = (key: string | null) =>
-    key ? models.find((m) => m.key === key)?.label ?? key : "—";
+    key ? models.find((m) => m.key === key)?.label ?? key : "-";
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -53,9 +53,9 @@ export default function PerformancePage() {
   const stats = useMemo(() => {
     if (timedDocs.length === 0) {
       return {
-        avg: "—",
-        fastest: "—",
-        slowest: "—",
+        avg: "-",
+        fastest: "-",
+        slowest: "-",
         count: 0,
       };
     }
@@ -70,7 +70,7 @@ export default function PerformancePage() {
   }, [timedDocs]);
 
   // Breakdown by extraction model. This is the dominant factor in latency now
-  // that several models are selectable — a single blended average across them
+  // that several models are selectable - a single blended average across them
   // would hide a 2-3x difference, so report each one separately.
   const modelBreakdown = useMemo(() => {
     const byKey = new Map<string, number[]>();
@@ -105,7 +105,7 @@ export default function PerformancePage() {
             typeDocs.reduce((sum, d) => sum + (d.processingTime || 0), 0) /
             typeDocs.length
           ).toFixed(2)
-        : "—";
+        : "-";
       return {
         type: t,
         avg: avg,
@@ -201,7 +201,7 @@ export default function PerformancePage() {
           <div className="absolute top-0 right-0 w-24 h-24 -mr-6 -mt-6 bg-secondary/5 rounded-full group-hover:scale-110 transition-transform duration-300"></div>
           <span className="material-symbols-outlined text-secondary text-2xl">avg_time</span>
           <div className="mt-3 text-display text-text-primary font-bold">
-            {stats.avg !== "—" ? `${stats.avg}s` : "—"}
+            {stats.avg !== "-" ? `${stats.avg}s` : "-"}
           </div>
           <div className="text-body-sm text-on-surface-variant font-semibold">Average Speed</div>
           <div className="mt-1 text-[11px] text-on-surface-variant/80">Average latency across all tracked extractions</div>
@@ -212,7 +212,7 @@ export default function PerformancePage() {
           <div className="absolute top-0 right-0 w-24 h-24 -mr-6 -mt-6 bg-status-success/5 rounded-full group-hover:scale-110 transition-transform duration-300"></div>
           <span className="material-symbols-outlined text-status-success text-2xl">bolt</span>
           <div className="mt-3 text-display text-text-primary font-bold">
-            {stats.fastest !== "—" ? `${stats.fastest}s` : "—"}
+            {stats.fastest !== "-" ? `${stats.fastest}s` : "-"}
           </div>
           <div className="text-body-sm text-on-surface-variant font-semibold">Fastest Run</div>
           <div className="mt-1 text-[11px] text-on-surface-variant/80">Minimum time recorded during extraction</div>
@@ -223,7 +223,7 @@ export default function PerformancePage() {
           <div className="absolute top-0 right-0 w-24 h-24 -mr-6 -mt-6 bg-status-error/5 rounded-full group-hover:scale-110 transition-transform duration-300"></div>
           <span className="material-symbols-outlined text-status-error text-2xl">release_alert</span>
           <div className="mt-3 text-display text-text-primary font-bold">
-            {stats.slowest !== "—" ? `${stats.slowest}s` : "—"}
+            {stats.slowest !== "-" ? `${stats.slowest}s` : "-"}
           </div>
           <div className="text-body-sm text-on-surface-variant font-semibold">Slowest Run</div>
           <div className="mt-1 text-[11px] text-on-surface-variant/80">Maximum time recorded (check network/context)</div>
@@ -270,7 +270,7 @@ export default function PerformancePage() {
               </div>
               {modelBreakdown.length > 1 && (
                 <p className="mt-4 text-[12px] leading-relaxed text-on-surface-variant">
-                  The metric cards above average across <strong>all</strong> models — with more
+                  The metric cards above average across <strong>all</strong> models - with more
                   than one in use, compare the per-model figures here instead.
                 </p>
               )}
@@ -300,7 +300,7 @@ export default function PerformancePage() {
                         ({item.count} docs)
                       </span>
                       <span className="mono text-secondary font-bold">
-                        {item.avg !== "—" ? `${item.avg}s` : "—"}
+                        {item.avg !== "-" ? `${item.avg}s` : "-"}
                       </span>
                     </div>
                   </div>
@@ -373,7 +373,7 @@ export default function PerformancePage() {
               </select>
             </div>
 
-            {/* Model Filter — isolate one model to compare like with like. */}
+            {/* Model Filter - isolate one model to compare like with like. */}
             <div>
               <select
                 value={modelFilter}
@@ -452,7 +452,7 @@ export default function PerformancePage() {
                               className="text-on-surface-variant/60"
                               title="Extracted before the model was recorded"
                             >
-                              —
+                              -
                             </span>
                           )}
                         </td>
@@ -473,7 +473,7 @@ export default function PerformancePage() {
                               {d.processingTime !== null &&
                               d.processingTime !== undefined
                                 ? `${d.processingTime.toFixed(1)}s`
-                                : "—"}
+                                : "-"}
                             </span>
                           </div>
                         </td>

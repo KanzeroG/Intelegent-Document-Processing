@@ -153,7 +153,7 @@ export default function UploadPage() {
             <label className="mt-4 block">
               <span className="text-label-md text-on-surface-variant">Extraction Model</span>
               <select value={model} disabled={loading} onChange={(e) => setModel(e.target.value)} className="mt-1.5 h-10 w-full rounded-lg border border-border-base bg-surface-white px-3 text-body-md text-text-primary focus:border-secondary focus:outline-none disabled:opacity-50">
-                {models.map((m) => <option key={m.key} value={m.key} disabled={!m.configured}>{m.label}{!m.configured ? " — API key needed" : ""}</option>)}
+                {models.map((m) => <option key={m.key} value={m.key} disabled={!m.configured}>{m.label}{!m.configured ? " - API key needed" : ""}</option>)}
               </select>
               {activeModel?.remote && (
                 <span className="mt-1.5 flex gap-1.5 text-body-sm text-status-review">

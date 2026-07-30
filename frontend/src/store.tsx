@@ -61,6 +61,7 @@ export interface DocRecord {
   docType: DocType;
   uploadedAt: string;
   uploadedBy: string | null;
+  approvedAt: string | null; // when it entered the Archive; null unless approved
   status: DocStatus;
   data: ExtractedDocument;
   issues: DocumentRecord["issues"];
@@ -78,6 +79,7 @@ export function toRecord(r: DocumentRecord): DocRecord {
     docType: r.doc_type,
     uploadedAt: r.uploaded_at,
     uploadedBy: r.uploaded_by,
+    approvedAt: r.approved_at ?? null,
     status: r.status,
     data: r.data,
     issues: r.issues,
@@ -153,7 +155,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  // (Re)load documents whenever the session changes — the backend filters the
+  // (Re)load documents whenever the session changes - the backend filters the
   // list per role, so a fresh login must refetch. Signed out -> empty store.
   useEffect(() => {
     if (!user) {
@@ -164,7 +166,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
     void reload();
   }, [user, reload]);
 
-  // The API client saw a 401 — the token is invalid/expired, so sign out.
+  // The API client saw a 401 - the token is invalid/expired, so sign out.
   useEffect(() => {
     const onUnauthorized = () => setUser(null);
     window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);

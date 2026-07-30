@@ -1,7 +1,7 @@
 // Monitoring dashboard. Metric cards are derived from the document store; the
 // "Model Accuracy" section shows the ground-truth evaluation (deliverable #5)
 // and the ROI calculator the business case (deliverable #6, admin-only). Avg
-// extraction confidence is a session heuristic and is labelled as such — it is
+// extraction confidence is a session heuristic and is labelled as such - it is
 // NOT the same number as accuracy. (Per-action history lives on the dedicated
 // Audit Log page, so the dashboard does not repeat it.)
 
@@ -24,7 +24,7 @@ export default function DashboardPage() {
         if (alive) setEvalStatus(s);
       })
       .catch(() => {
-        /* backend down — the shell banner covers it */
+        /* backend down - the shell banner covers it */
       });
     return () => {
       alive = false;
@@ -33,7 +33,7 @@ export default function DashboardPage() {
 
   // …then a single polling mechanism: the interval exists exactly while a run
   // is active. Covers eval-already-running-on-mount, completion, unmount, and
-  // StrictMode double-invoke — and cannot double-poll (this is the only
+  // StrictMode double-invoke - and cannot double-poll (this is the only
   // setInterval on the page).
   const evalRunning = evalStatus?.running ?? false;
   useEffect(() => {
@@ -42,7 +42,7 @@ export default function DashboardPage() {
       getEvalStatus()
         .then(setEvalStatus)
         .catch(() => {
-          /* transient failure — keep the last state and try again next tick */
+          /* transient failure - keep the last state and try again next tick */
         });
     }, 3000);
     return () => window.clearInterval(id);
@@ -51,7 +51,7 @@ export default function DashboardPage() {
   async function handleRunEval(limit?: number) {
     try {
       await runEval(limit);
-      toast.success("Evaluation started — this runs in the background.");
+      toast.success("Evaluation started - this runs in the background.");
       setEvalStatus(await getEvalStatus()); // flips running -> the effect polls
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not start evaluation");
@@ -102,7 +102,7 @@ export default function DashboardPage() {
         <Metric icon="flag" label="Flagged Issues" value={flagged} tint="text-status-error" delay="300ms" />
       </div>
 
-      {/* Model accuracy vs ground truth (evaluation — deliverable #5) */}
+      {/* Model accuracy vs ground truth (evaluation - deliverable #5) */}
       <div className="mt-gutter rounded-lg border border-border-base bg-surface-white p-5 shadow-sm animate-fade-slide-up" style={{ animationDelay: '50ms' }}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -228,7 +228,7 @@ export default function DashboardPage() {
           </div>
         </Card>
 
-        {/* Session confidence — a heuristic, deliberately NOT called "accuracy"
+        {/* Session confidence - a heuristic, deliberately NOT called "accuracy"
             (ground-truth accuracy lives in the eval section above). */}
         <Card title="Avg Extraction Confidence" delay="200ms">
           <div className="flex items-end gap-2">
@@ -239,7 +239,7 @@ export default function DashboardPage() {
             <div className="h-2 rounded-full bg-secondary" style={{ width: `${avgConfidence}%` }} />
           </div>
           <p className="mt-2 text-body-sm text-on-surface-variant">
-            Heuristic from validation issues — for measured accuracy see “Model Accuracy” above.
+            Heuristic from validation issues - for measured accuracy see “Model Accuracy” above.
           </p>
         </Card>
 
@@ -259,7 +259,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Cost-benefit / ROI calculator (deliverable #6) — the business case is
+      {/* Cost-benefit / ROI calculator (deliverable #6) - the business case is
           an admin responsibility. */}
       {role === "admin" && (
         <div className="mt-gutter">
@@ -387,7 +387,7 @@ function ROICard({ needsReviewFraction }: { needsReviewFraction: number }) {
               suffix="%"
             />
           </div>
-          {/* Say where the seed came from — a reviewer should be able to tell a
+          {/* Say where the seed came from - a reviewer should be able to tell a
               measured input from a guessed one. */}
           <p className="mt-3 text-[12px] leading-relaxed text-on-surface-variant">
             Review rate seeded from the accuracy evaluation:{" "}
@@ -396,7 +396,7 @@ function ROICard({ needsReviewFraction }: { needsReviewFraction: number }) {
             {flooredBelowEval && (
               <>
                 Floored to {MIN_SPOT_CHECK * 100}% because a perfect score means no{" "}
-                <em>known</em> errors, not zero review — you cannot tell which document is wrong
+                <em>known</em> errors, not zero review - you cannot tell which document is wrong
                 without opening it, and a spot-check sample is standard practice.{" "}
               </>
             )}
@@ -415,7 +415,7 @@ function ROICard({ needsReviewFraction }: { needsReviewFraction: number }) {
             </div>
             <div className="mt-1 text-body-sm text-on-surface-variant">
               {savingsPct.toFixed(0)}% lower cost · payback in{" "}
-              {Number.isFinite(paybackMonths) ? `${paybackMonths.toFixed(1)} months` : "—"}
+              {Number.isFinite(paybackMonths) ? `${paybackMonths.toFixed(1)} months` : "-"}
             </div>
           </div>
         </div>

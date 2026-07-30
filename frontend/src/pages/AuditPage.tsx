@@ -1,4 +1,4 @@
-// Audit log (admin-only): the append-only trail of who did what — logins,
+// Audit log (admin-only): the append-only trail of who did what - logins,
 // uploads, corrections, approvals/rejections, and evaluation runs. Entries are
 // written server-side, so the trail also covers actions outside this UI.
 
@@ -50,7 +50,7 @@ export default function AuditPage() {
 
   // Prefer the human identifier (doc_number) when the document is in the store.
   function docCell(docId: string | null) {
-    if (!docId) return <span className="text-on-surface-variant">—</span>;
+    if (!docId) return <span className="text-on-surface-variant">-</span>;
     const doc = docs.find((d) => d.id === docId);
     return (
       <Link
@@ -68,7 +68,7 @@ export default function AuditPage() {
         <div>
           <h1 className="text-headline-lg text-text-primary">Audit Log</h1>
           <p className="mt-1 text-body-md text-on-surface-variant">
-            Who did what, and when — newest first (last {entries?.length ?? 0} events).
+            Who did what, and when - newest first (last {entries?.length ?? 0} events).
           </p>
         </div>
         <button
@@ -102,7 +102,7 @@ export default function AuditPage() {
           </div>
         ) : entries && entries.length === 0 ? (
           <div className="px-5 py-12 text-center text-body-md text-on-surface-variant">
-            No activity recorded yet — sign-ins, uploads, and review actions will appear here.
+            No activity recorded yet - sign-ins, uploads, and review actions will appear here.
           </div>
         ) : (
           <div className="overflow-x-auto">

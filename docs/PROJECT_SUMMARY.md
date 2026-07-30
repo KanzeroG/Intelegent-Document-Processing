@@ -1,18 +1,18 @@
-# DocExtract — Project Summary (for slides / presentation)
+# DocExtract - Project Summary (for slides / presentation)
 
 Slide-ready summary of the Intelligent Document Processing project. Each section
-maps to one slide. Numbers marked *(sample)* come from a small eval run — run the
+maps to one slide. Numbers marked *(sample)* come from a small eval run - run the
 full 60-doc evaluation for a headline figure before citing one.
 
 ---
 
 ## 1. Title
-**DocExtract — Intelligent Document Processing**
+**DocExtract - Intelligent Document Processing**
 Upload → AI extraction → validation → human review → export. Built for Indonesian
 invoices, purchase orders, and receipts. Runs 100% locally.
 
 ## 2. The Problem
-- Finance/ops teams manually key data from invoices/POs/receipts — slow, costly,
+- Finance/ops teams manually key data from invoices/POs/receipts - slow, costly,
   error-prone, and it scales badly.
 - Goal: a multimodal LLM reads the document, outputs clean structured data, with
   validation + a human review step before export.
@@ -25,7 +25,7 @@ React (Vite) --HTTP--> FastAPI (Python) --> LM Studio (qwen/qwen3-vl-4b)
 ```
 - **Frontend:** React + Vite + Tailwind (DocExtract design system)
 - **Backend:** Python + FastAPI + pydantic
-- **Model:** Qwen3-VL-4B via LM Studio (OpenAI-compatible, local) — the model *is* the OCR
+- **Model:** Qwen3-VL-4B via LM Studio (OpenAI-compatible, local) - the model *is* the OCR
 - **Storage:** SQLite (caches extractions + the original files)
 - Clean boundary: React only calls FastAPI; only FastAPI touches the model.
 
@@ -39,7 +39,7 @@ React (Vite) --HTTP--> FastAPI (Python) --> LM Studio (qwen/qwen3-vl-4b)
 | 5 | Field-level accuracy evaluation | Done |
 | 6 | Cost-benefit business case | Done |
 
-## 5. Feature — Upload & Extraction
+## 5. Feature - Upload & Extraction
 - Drag-and-drop, single or **batch** upload (per-file document type).
 - Extract-on-click (stage first, then run) with a live progress bar.
 - Vision model returns structured JSON matching a pydantic schema:
@@ -47,22 +47,22 @@ React (Vite) --HTTP--> FastAPI (Python) --> LM Studio (qwen/qwen3-vl-4b)
   total_amount, line_items`.
 - Results cached in SQLite → re-open instantly, no re-running the model.
 
-## 6. Feature — Validation (graded deliverable)
+## 6. Feature - Validation (graded deliverable)
 Nine business rules, including:
 - Required fields present; line items sum to subtotal; **subtotal + tax = total** (error).
 - **PPN 11%** check on invoices/POs; receipts have no tax line.
 - Format checks: real `YYYY-MM-DD` date, 3-letter currency, doc number present.
 - Per-line arithmetic (qty × unit_price = line_total); confidence-flagging hook.
-- **74 automated tests** — all 60 ground-truth rows validate clean.
+- **74 automated tests** - all 60 ground-truth rows validate clean.
 
-## 7. Feature — Human Review
+## 7. Feature - Human Review
 - Document preview beside **editable** extracted fields.
 - **"Missing" badges** on empty fields; a **confidence score** that drops for missing fields.
 - **Validation Rules** panel (Calculation Mismatch / Missing Information).
 - Actions: **Save Corrections** (re-validates), **Reject**, **Approve & Export**.
 - Amounts shown Indonesian-style (`1.812.630`).
 
-## 8. Feature — Export & Dashboard
+## 8. Feature - Export & Dashboard
 - Per-document **JSON** + **CSV** download; **Approve & Export** posts to a **mock API**; **bulk "export all approved" CSV**.
 - **Admin dashboard:** metric cards, docs-by-type, issues-by-rule, recent activity.
 - **ROI calculator** (editable assumptions → savings + payback).
@@ -81,7 +81,7 @@ Nine business rules, including:
 - Run `python evaluate.py` (backend) for the full 60-doc headline number.
 
 ## 11. Business Case (ROI)
-Example — 1,000 docs/month at default assumptions:
+Example - 1,000 docs/month at default assumptions:
 - Manual: **Rp 5,000,000/mo** · Automated (review only): **Rp 500,000/mo**
 - **~90% cost reduction**, **~Rp 54M/year saved**, **payback ~3.3 months**
 - Also: faster close, auditability, on-prem privacy, cost scales with the *review* fraction, not total volume.
@@ -99,5 +99,5 @@ Example — 1,000 docs/month at default assumptions:
 ---
 
 ### Accuracy caveats for the deck
-- "~95–100%" is from a **small sample** — run the full 60-doc eval before quoting a headline number.
-- Login is a **stubbed role switcher**, not real auth — describe it as a "role-based workflow," not "secure login."
+- "~95–100%" is from a **small sample** - run the full 60-doc eval before quoting a headline number.
+- Login is a **stubbed role switcher**, not real auth - describe it as a "role-based workflow," not "secure login."

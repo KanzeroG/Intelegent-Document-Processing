@@ -1,0 +1,17 @@
+INVOICE
+
+Vendor       : PT Sumber Makmur
+No. Invoice  : INV-2026-099
+Tanggal      : 2026-07-30
+Kepada       : PT Nusa Pangan
+
+Rincian Barang
+---------------------------------------------
+Kertas A4        4  x  18.000   =   72.000
+Pulpen Box       4  x  42.000   =  168.000
+---------------------------------------------
+Subtotal                        :  240.000
+PPN (11%)                       :   26.400
+Total                           :  266.400
+
+Terima kasih atas kepercayaan Anda.

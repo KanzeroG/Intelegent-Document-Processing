@@ -14,8 +14,8 @@ checks"):
   8. Each line item's qty * unit_price reconciles with its line_total.
 
 And an optional confidence-flagging hook (PDF work-step 4: "flag low-confidence
-fields"). Extraction does not yet emit per-field confidence — Ollama's
-`/api/chat` exposes no logprobs — so `validate_document` accepts an optional
+fields"). Extraction does not yet emit per-field confidence - Ollama's
+`/api/chat` exposes no logprobs - so `validate_document` accepts an optional
 `field_confidences` map and flags anything below threshold. This wires the
 review UI's per-field confidence behaviour now and lets extraction populate it
 later without touching call sites.
@@ -44,7 +44,7 @@ from pydantic import BaseModel
 from . import db
 from .schemas import Document, DocumentType
 
-# Absolute tolerance (in Rupiah) when comparing sums — covers rounding.
+# Absolute tolerance (in Rupiah) when comparing sums - covers rounding.
 _RECONCILE_TOLERANCE = 1
 # PPN rate and the fractional tolerance allowed when checking it.
 _PPN_RATE = 0.11

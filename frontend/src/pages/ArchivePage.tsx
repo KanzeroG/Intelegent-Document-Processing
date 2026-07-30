@@ -8,7 +8,7 @@
 //                            date they were approved (= the export date),
 //                            each date collapsible.
 //
-// Grouping is by `approvedAt`, not upload time — the archive answers "what was
+// Grouping is by `approvedAt`, not upload time - the archive answers "what was
 // signed off and released, and when", which is the question an audit asks.
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -54,7 +54,7 @@ function formatDayHeading(isoDate: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Export menu — pick a period + a file format, download the report
+// Export menu - pick a period + a file format, download the report
 // ---------------------------------------------------------------------------
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -67,7 +67,7 @@ const monthEnd = (year: number, month: number) =>
 
 // How the reviewer describes the period they want. All three collapse to one
 // inclusive start/end pair before they reach the backend, which only speaks
-// dates — the modes exist so nobody has to type "1 Jan" to mean "this year".
+// dates - the modes exist so nobody has to type "1 Jan" to mean "this year".
 type RangeMode = "year" | "months" | "dates";
 
 const FORMATS: { key: ExportFormat; label: string; hint: string; icon: string }[] = [
@@ -218,7 +218,7 @@ function ExportMenu({ year, archived }: { year: number; archived: DocRecord[] })
 
             {mode === "year" && (
               <p className="mt-3 rounded-lg bg-surface-container-low/60 px-3 py-2 text-body-sm text-on-surface-variant">
-                All of <span className="font-semibold text-text-primary">{year}</span> — 1 January
+                All of <span className="font-semibold text-text-primary">{year}</span> - 1 January
                 to 31 December.
               </p>
             )}
@@ -336,7 +336,7 @@ function ExportMenu({ year, archived }: { year: number; archived: DocRecord[] })
 }
 
 // ---------------------------------------------------------------------------
-// /archive — the 12-month grid for one year
+// /archive - the 12-month grid for one year
 // ---------------------------------------------------------------------------
 
 export default function ArchivePage() {
@@ -357,7 +357,7 @@ export default function ArchivePage() {
     return counts;
   }, [archived, year]);
 
-  // Years that actually hold documents — used to stop the arrows wandering
+  // Years that actually hold documents - used to stop the arrows wandering
   // into empty decades.
   const years = useMemo(() => {
     const set = new Set<number>([thisYear]);
@@ -442,7 +442,7 @@ export default function ArchivePage() {
 }
 
 // ---------------------------------------------------------------------------
-// /archive/:year/:month — one month, grouped by approval date
+// /archive/:year/:month - one month, grouped by approval date
 // ---------------------------------------------------------------------------
 
 export function ArchiveMonthPage() {
@@ -500,7 +500,7 @@ export function ArchiveMonthPage() {
   }, [filtered]);
 
   // Default: the newest day is expanded, so the page is never a wall of closed
-  // rows — whatever the filters currently leave at the top.
+  // rows - whatever the filters currently leave at the top.
   const defaultOpen = useMemo(() => new Set(byDay.slice(0, 1).map(([day]) => day)), [byDay]);
   const openSet = openDays ?? defaultOpen;
 
@@ -513,7 +513,7 @@ export function ArchiveMonthPage() {
     });
   }
 
-  // A date outside this month is still a valid thing to ask for — jump to the
+  // A date outside this month is still a valid thing to ask for - jump to the
   // month that owns it rather than showing an empty list.
   function onDateChange(value: string) {
     setDateFilter(value);

@@ -223,7 +223,7 @@ def test_amount_formatting_uses_dot_thousands():
     # The Indonesian convention the whole pipeline is built around.
     assert export._fmt_amount(12_450_000) == "12.450.000"
     assert export._fmt_amount(-240_000) == "-240.000"
-    assert export._fmt_amount(None) == "—"
+    assert export._fmt_amount(None) == "-"
 
 
 def test_report_row_falls_back_to_the_internal_id():
@@ -234,7 +234,7 @@ def test_report_row_falls_back_to_the_internal_id():
 
 
 def test_pdf_escapes_html_in_extracted_text():
-    """Vendor names come from a model reading a scan — they are not trusted HTML."""
+    """Vendor names come from a model reading a scan - they are not trusted HTML."""
     pdf = export.to_pdf(
         [{"id": "x", "doc_type": "invoice", "approved_at": "2026-07-01",
           "data": {"vendor": "PT <b>Bold</b> & Co", "total_amount": 1}}],

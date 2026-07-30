@@ -8,10 +8,10 @@ real accounting/ERP system). These helpers operate on the stored record dict
 
 Two families of format live here, and they answer different questions:
 
-  * **CSV / JSON** — machine-readable. Columns mirror `Source/ground_truth.csv`
+  * **CSV / JSON** - machine-readable. Columns mirror `Source/ground_truth.csv`
     exactly (line items as an embedded JSON blob) so an export can be diffed
     against the labels or piped into another system.
-  * **XLSX / DOCX / PDF** — human-readable. A narrower, formatted column set
+  * **XLSX / DOCX / PDF** - human-readable. A narrower, formatted column set
     plus a totals row, for the Archive's "give me this month as a report"
     button. Rupiah is rendered with Indonesian dot-thousands grouping.
 """
@@ -80,7 +80,7 @@ def to_csv_many(records: list[dict[str, Any]]) -> str:
 
 
 def to_json_many(records: list[dict[str, Any]]) -> str:
-    """Pretty JSON array of records — the multi-doc sibling of `to_json`."""
+    """Pretty JSON array of records - the multi-doc sibling of `to_json`."""
     return json.dumps(
         [
             {
@@ -125,7 +125,7 @@ _REPORT_COLUMNS: list[tuple[str, str, bool]] = [
 def _fmt_amount(value: Any) -> str:
     """Rupiah with Indonesian dot-thousands: 12450000 -> '12.450.000'."""
     if value is None:
-        return "—"
+        return "-"
     try:
         number = float(value)
     except (TypeError, ValueError):
@@ -139,13 +139,13 @@ def _report_row(rec: dict[str, Any]) -> dict[str, Any]:
     data = rec.get("data") or {}
     approved = (rec.get("approved_at") or "")[:10]
     return {
-        "approved_on": approved or "—",
+        "approved_on": approved or "-",
         # Falls back to the internal id when the model never found a doc number,
         # so every row is still traceable back to a stored document.
-        "doc_number": data.get("doc_number") or rec.get("id") or "—",
-        "doc_type": DOC_TYPE_LABEL.get(rec.get("doc_type") or "", rec.get("doc_type") or "—"),
-        "vendor": data.get("vendor") or "—",
-        "doc_date": data.get("doc_date") or "—",
+        "doc_number": data.get("doc_number") or rec.get("id") or "-",
+        "doc_type": DOC_TYPE_LABEL.get(rec.get("doc_type") or "", rec.get("doc_type") or "-"),
+        "vendor": data.get("vendor") or "-",
+        "doc_date": data.get("doc_date") or "-",
         "subtotal": data.get("subtotal"),
         "tax_amount": data.get("tax_amount"),
         "total_amount": data.get("total_amount"),
@@ -190,7 +190,7 @@ def to_xlsx(records: list[dict[str, Any]], title: str) -> bytes:
         cell.fill = fill
 
     # Excel stores format codes in US notation and renders them in the reader's
-    # locale — an Indonesian Excel shows "#,##0" as dot-thousands by itself.
+    # locale - an Indonesian Excel shows "#,##0" as dot-thousands by itself.
     money_format = "#,##0"
     for row in rows:
         ws.append([row[key] for _, key, _ in _REPORT_COLUMNS])

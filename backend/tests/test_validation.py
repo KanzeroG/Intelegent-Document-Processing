@@ -1,7 +1,7 @@
 """Tests for the business-rule validation layer.
 
 Two kinds of checks:
-  1. Every row of the real Source/ground_truth.csv must validate cleanly — the
+  1. Every row of the real Source/ground_truth.csv must validate cleanly - the
      labelled data satisfies all business rules, so the rules must not
      false-positive on correct data.
   2. Each rule fires on a document with that specific error injected.

@@ -1,4 +1,4 @@
-"""Pydantic schemas — the extraction *contract*.
+"""Pydantic schemas - the extraction *contract*.
 
 These models define the exact shape the vision model must return. We feed each
 model's JSON schema into the extraction prompt, then validate the model's reply
@@ -52,7 +52,7 @@ class Document(BaseModel):
 
     Receipts legitimately have no `buyer` and no `tax_amount` (no separate tax
     line), so those stay optional rather than being modeled as separate classes.
-    All monetary fields are whole-Rupiah integers — `Rp 240.000` -> 240000.
+    All monetary fields are whole-Rupiah integers - `Rp 240.000` -> 240000.
     """
 
     doc_type: DocumentType = Field(..., description="invoice | purchase_order | receipt.")

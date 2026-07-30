@@ -1,8 +1,8 @@
-"""RAG chat over extracted documents (bonus feature — see docs/TODO.md).
+"""RAG chat over extracted documents (bonus feature - see docs/TODO.md).
 
 Two answering modes:
   - Per-document: the caller names a doc_id. Its extracted JSON is small, so it
-    goes straight into the prompt — no retrieval needed.
+    goes straight into the prompt - no retrieval needed.
   - Cross-document: at the current ~60-doc scale the whole visible corpus fits
     in the model's 16k window, so every record's one-line summary goes into the
     prompt and answers cover ALL documents (counts, sums, "which are flagged").
@@ -11,7 +11,7 @@ Two answering modes:
 
 Everything runs on the same local LM Studio server as extraction (the chat call
 reuses the vision model in text-only mode). A module-level lock serializes
-model calls — the 16GB fanless M4 host cannot run two inferences at once, and
+model calls - the 16GB fanless M4 host cannot run two inferences at once, and
 LM Studio would otherwise queue them anyway.
 
 Grounding: the prompt instructs the model to answer ONLY from the supplied
@@ -40,7 +40,7 @@ CHAT_PROFILE = os.getenv("CHAT_MODEL", "qwen")
 
 # Embeddings are pinned to LM Studio regardless of the chat profile: the model
 # below is loaded there specifically, and a hosted chat profile has no endpoint
-# serving it. (Only used above _MAX_CONTEXT_DOCS — see below.)
+# serving it. (Only used above _MAX_CONTEXT_DOCS - see below.)
 _EMBED_URL = LM_STUDIO_URL.rsplit("/chat/completions", 1)[0] + "/embeddings"
 _EMBED_MODEL = "text-embedding-nomic-embed-text-v1.5"
 _TIMEOUT = 120.0
@@ -64,7 +64,7 @@ class ChatError(RuntimeError):
 
 
 def summarize_record(rec: dict[str, Any]) -> str:
-    """Deterministic one-line summary of a record — the embedded/retrieved text.
+    """Deterministic one-line summary of a record - the embedded/retrieved text.
 
     ~100-200 tokens per doc, so the top-k context stays far inside the model's
     16k window even with a long question.
@@ -100,13 +100,13 @@ def _embed(texts: list[str]) -> list[list[float]]:
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             raise ChatError(
-                f"Embeddings model '{_EMBED_MODEL}' is not loaded in LM Studio — "
+                f"Embeddings model '{_EMBED_MODEL}' is not loaded in LM Studio - "
                 "load it (or start the server) and try again."
             ) from exc
         raise ChatError(f"Embeddings request failed: {exc}") from exc
     except httpx.HTTPError as exc:
         raise ChatError(
-            f"Could not reach LM Studio at {_EMBED_URL} — is the server running? ({exc})"
+            f"Could not reach LM Studio at {_EMBED_URL} - is the server running? ({exc})"
         ) from exc
     rows = sorted(resp.json()["data"], key=lambda d: d["index"])
     return [row["embedding"] for row in rows]
@@ -177,7 +177,7 @@ def _chat(system: str, user_msg: str, profile: ModelProfile, history: list[dict[
         ) from exc
     except httpx.HTTPError as exc:
         raise ChatError(
-            f"Could not reach the chat model — is {profile.label} available with "
+            f"Could not reach the chat model - is {profile.label} available with "
             f"'{profile.model}' loaded? ({exc})"
         ) from exc
     return resp.json()["choices"][0]["message"]["content"] or ""
@@ -187,11 +187,11 @@ _SYSTEM_PROMPT = (
     "You are DocExtract's assistant. You answer questions about the user's "
     "extracted financial documents (Indonesian invoices, purchase orders, and "
     "receipts; all amounts are whole Indonesian Rupiah integers). Answer ONLY "
-    "from the document data provided below — never invent documents or figures. "
+    "from the document data provided below - never invent documents or figures. "
     "Cite document numbers when you refer to specific documents. If the answer "
     "is not in the provided data, output exactly: 'Saya tidak menemukan informasi tersebut dalam dokumen'. "
     "DO NOT start your response with 'Based on the context' or 'Here is the answer'. "
-    "Be concise: give the final answer directly — do not narrate step-by-step reasoning or self-corrections. "
+    "Be concise: give the final answer directly - do not narrate step-by-step reasoning or self-corrections. "
     "Treat repeated document numbers as the same document (count each once)."
 )
 
@@ -199,7 +199,7 @@ _SYSTEM_PROMPT = (
 def _citations(answer: str, context_docs: list[dict[str, Any]]) -> list[dict[str, str | None]]:
     """Which documents to cite under the answer.
 
-    Prefer the documents whose number the answer actually names — precise, and
+    Prefer the documents whose number the answer actually names - precise, and
     avoids dumping all 60 docs as "sources" on an aggregate answer. If none are
     named but only a retrieved handful was in context, cite those (they were the
     retrieved sources); for a whole-corpus aggregate that names no document, cite
@@ -250,7 +250,7 @@ def answer_question(
             )
         elif not records:
             return (
-                "There are no extracted documents to search yet — upload one on the Upload page first.",
+                "There are no extracted documents to search yet - upload one on the Upload page first.",
                 [],
             )
         elif len(records) <= _MAX_CONTEXT_DOCS:

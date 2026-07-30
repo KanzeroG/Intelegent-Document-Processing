@@ -1,6 +1,6 @@
 // Admin-only settings: tune the validation thresholds used during extraction /
 // re-validation, and manage the user accounts that can sign in. Both sections
-// talk to the /admin/* endpoints, which are admin-gated server-side too — this
+// talk to the /admin/* endpoints, which are admin-gated server-side too - this
 // page is a convenience surface, not the security boundary.
 
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";

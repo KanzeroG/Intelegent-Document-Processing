@@ -35,7 +35,7 @@ export function saveAuth(auth: StoredAuth): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(auth));
   } catch {
-    /* storage unavailable (private mode) — session just won't persist */
+    /* storage unavailable (private mode) - session just won't persist */
   }
 }
 
