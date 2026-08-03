@@ -8,7 +8,7 @@ export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 export type DocType = "invoice" | "purchase_order" | "receipt";
-export type Role = "user" | "staff" | "admin";
+export type Role = "staff" | "finance" | "admin";
 export type DocStatus = "extracted" | "in_review" | "approved" | "flagged" | "rejected";
 
 export interface LineItem {

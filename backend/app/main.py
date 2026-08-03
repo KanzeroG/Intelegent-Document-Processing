@@ -76,14 +76,14 @@ def _record(doc: Document, issues: list[ValidationIssue]) -> dict:
     }
 
 
-# Token-authenticated `user` callers only see their own documents; staff/admin
+# Token-authenticated `staff` callers only see their own documents; finance/admin
 # (and tokenless callers, e.g. plain <a href> downloads) see everything.
 def _is_scoped_user(user: AuthUser) -> bool:
-    return user.email is not None and user.role == Role.USER
+    return user.email is not None and user.role == Role.STAFF
 
 
 def _get_visible_document(doc_id: str, user: AuthUser) -> dict:
-    """Fetch a record, hiding other uploaders' docs from `user`-role callers.
+    """Fetch a record, hiding other uploaders' docs from `staff`-role callers.
     404 (not 403) so document ids don't leak existence."""
     rec = db.get_document(doc_id)
     if not rec or (_is_scoped_user(user) and rec.get("uploaded_by") != user.email):
@@ -408,11 +408,11 @@ def export_selected_csv(
 ) -> Response:
     """CSV of a hand-picked set of documents (from the My Documents table).
 
-    Reviewer action: token `user` callers are rejected, matching the rest of
+    Reviewer action: token `staff` callers are rejected, matching the rest of
     the export/review surface. Only documents the caller can see are included,
     returned in the order they were selected."""
     if _is_scoped_user(user):
-        raise HTTPException(status_code=403, detail="Reviewer (staff/admin) role required.")
+        raise HTTPException(status_code=403, detail="Reviewer (finance/admin) role required.")
     by_id = {r["id"]: r for r in db.list_documents()}
     records = [by_id[i] for i in body.ids if i in by_id]
     if not records:
@@ -455,11 +455,11 @@ def export_archive(
     / date-range choices in the UI all reduce to a pair of dates here, so the
     backend needs one endpoint rather than three.
 
-    Reviewer action: `user`-role callers are rejected, matching the rest of the
+    Reviewer action: `staff`-role callers are rejected, matching the rest of the
     export surface (only staff/admin can see the Archive at all).
     """
     if _is_scoped_user(user):
-        raise HTTPException(status_code=403, detail="Reviewer (staff/admin) role required.")
+        raise HTTPException(status_code=403, detail="Reviewer (finance/admin) role required.")
     if fmt not in export.REPORT_FORMATS:
         raise HTTPException(
             status_code=400,
@@ -526,7 +526,7 @@ def patch_document(doc_id: str, body: PatchBody, user: AuthUser = Depends(get_cu
     # Review is a staff/admin responsibility. Only token-authenticated `user`
     # callers are rejected - tokenless callers keep the original open behavior.
     if _is_scoped_user(user):
-        raise HTTPException(status_code=403, detail="Reviewer (staff/admin) role required.")
+        raise HTTPException(status_code=403, detail="Reviewer (finance/admin) role required.")
     # Deciding a document's fate - approve or reject - is the admin's call.
     # Staff submit corrections (`data`), which re-derive the status from the
     # validation rules but never set it directly. Enforced here, not only by

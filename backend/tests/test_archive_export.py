@@ -24,7 +24,7 @@ from app import db, export
 from app.main import app
 
 ADMIN = {"X-Role": "admin"}
-STAFF = {"X-Role": "staff"}
+FINANCE = {"X-Role": "finance"}
 
 
 @pytest.fixture()
@@ -67,7 +67,7 @@ def _seed(doc_id: str, approved_at: str | None, *, status: str = "approved",
                 ],
             },
             "issues": [],
-            "uploaded_by": "user@demo",
+            "uploaded_by": "staff@demo",
             "approved_at": approved_at,
         },
         b"%PDF-",
@@ -147,21 +147,21 @@ def test_reversed_range_is_400(client, fresh_db):
 
 
 def test_scoped_user_is_forbidden(client, fresh_db):
-    """A token-borne `user` can't reach the Archive UI, so it can't export it."""
+    """A token-borne `staff` can't reach the Archive UI, so it can't export it."""
     from app.auth import AuthUser, Role, create_token
 
     _seed_july_window(fresh_db)
-    token = create_token(AuthUser(email="user@demo", name="Demo User", role=Role.USER))
+    token = create_token(AuthUser(email="staff@demo", name="Demo Staff", role=Role.STAFF))
     r = client.get(
         "/exports/archive.csv?start=2026-07-01&end=2026-07-31",
-        headers={"Authorization": f"Bearer {token}", "X-Role": "user"},
+        headers={"Authorization": f"Bearer {token}", "X-Role": "staff"},
     )
     assert r.status_code == 403
 
 
 def test_export_is_audited(client, fresh_db):
     _seed_july_window(fresh_db)
-    client.get("/exports/archive.xlsx?start=2026-07-01&end=2026-07-31", headers=STAFF)
+    client.get("/exports/archive.xlsx?start=2026-07-01&end=2026-07-31", headers=FINANCE)
     entry = db.list_audit(limit=1)[0]
     assert entry["action"] == "export"
     assert "XLSX" in entry["detail"] and "3 docs" in entry["detail"]

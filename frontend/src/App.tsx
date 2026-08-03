@@ -1,8 +1,8 @@
 // Routing + auth gate. Unauthenticated users land on /login; signed-in users
 // enter the app shell with routes gated per role:
-//   user  -> Upload (own docs), read-only /review/:id, Assistant
-//   staff -> + Review Queue (edit/approve/reject), Dashboard metrics
-//   admin -> + eval runs, bulk export, ROI (gated inside the pages)
+//   staff   -> Upload (own docs), read-only /review/:id, Assistant
+//   finance -> + Review Queue (edit/correct), Dashboard metrics
+//   admin   -> + approve/reject, eval runs, ROI (gated inside the pages)
 
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./store";
@@ -41,7 +41,7 @@ export default function App() {
         <Route
           path="/review"
           element={
-            <RequireRole allow={["staff", "admin"]}>
+            <RequireRole allow={["finance", "admin"]}>
               <ReviewQueuePage />
             </RequireRole>
           }
@@ -50,7 +50,7 @@ export default function App() {
         <Route
           path="/dashboard"
           element={
-            <RequireRole allow={["staff", "admin"]}>
+            <RequireRole allow={["finance", "admin"]}>
               <DashboardPage />
             </RequireRole>
           }
@@ -60,7 +60,7 @@ export default function App() {
         <Route
           path="/archive"
           element={
-            <RequireRole allow={["staff", "admin"]}>
+            <RequireRole allow={["finance", "admin"]}>
               <ArchivePage />
             </RequireRole>
           }
@@ -68,7 +68,7 @@ export default function App() {
         <Route
           path="/archive/:year/:month"
           element={
-            <RequireRole allow={["staff", "admin"]}>
+            <RequireRole allow={["finance", "admin"]}>
               <ArchiveMonthPage />
             </RequireRole>
           }

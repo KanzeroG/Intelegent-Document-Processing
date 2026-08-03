@@ -9,20 +9,20 @@ import { login, type Role } from "../api";
 import { useAuth } from "../store";
 import { roleHome } from "../lib/auth";
 
-const ROLE_TABS: Role[] = ["user", "staff", "admin"];
+const ROLE_TABS: Role[] = ["staff", "finance", "admin"];
 
 const DEMO_ACCOUNTS: Record<Role, { email: string; password: string }> = {
-  user: { email: "user@demo", password: "user123" },
   staff: { email: "staff@demo", password: "staff123" },
+  finance: { email: "finance@demo", password: "finance123" },
   admin: { email: "admin@demo", password: "admin123" },
 };
 
 export default function LoginPage() {
   const { signIn } = useAuth();
   const navigate = useNavigate();
-  const [selectedTab, setSelectedTab] = useState<Role>("user");
-  const [email, setEmail] = useState(DEMO_ACCOUNTS.user.email);
-  const [password, setPassword] = useState(DEMO_ACCOUNTS.user.password);
+  const [selectedTab, setSelectedTab] = useState<Role>("staff");
+  const [email, setEmail] = useState(DEMO_ACCOUNTS.staff.email);
+  const [password, setPassword] = useState(DEMO_ACCOUNTS.staff.password);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -142,8 +142,8 @@ export default function LoginPage() {
           </button>
 
           <p className="mt-6 text-center text-body-sm text-on-surface-variant">
-            Demo credentials: <span className="mono">user@demo</span> ·{" "}
-            <span className="mono">staff@demo</span> · <span className="mono">admin@demo</span>{" "}
+            Demo credentials: <span className="mono">staff@demo</span> ·{" "}
+            <span className="mono">finance@demo</span> · <span className="mono">admin@demo</span>{" "}
             (password: role + 123)
           </p>
         </form>

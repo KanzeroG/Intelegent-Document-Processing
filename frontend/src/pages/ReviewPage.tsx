@@ -86,7 +86,7 @@ export default function ReviewPage() {
       ? undefined
       : (docs.find((d) => d.status === "flagged" || d.status === "in_review") ?? docs[0]));
 
-  const canEdit = role === "staff" || role === "admin";
+  const canEdit = role === "finance" || role === "admin";
 
   if (!rec) {
     if (loading) {

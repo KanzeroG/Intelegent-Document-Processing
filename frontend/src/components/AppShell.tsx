@@ -4,11 +4,11 @@ import { useAuth, useDocuments } from "../store";
 import { API_BASE_URL, type Role } from "../api";
 
 const NAV: { to: string; label: string; icon: string; roles: Role[] }[] = [
-  { to: "/upload", label: "Upload", icon: "upload_file", roles: ["user", "staff", "admin"] },
-  { to: "/review", label: "Review Queue", icon: "fact_check", roles: ["staff", "admin"] },
-  { to: "/archive", label: "Archive", icon: "archive", roles: ["staff", "admin"] },
-  { to: "/dashboard", label: "Dashboard", icon: "monitoring", roles: ["staff", "admin"] },
-  { to: "/chat", label: "Assistant", icon: "forum", roles: ["user", "staff", "admin"] },
+  { to: "/upload", label: "Upload", icon: "upload_file", roles: ["staff", "finance", "admin"] },
+  { to: "/review", label: "Review Queue", icon: "fact_check", roles: ["finance", "admin"] },
+  { to: "/archive", label: "Archive", icon: "archive", roles: ["finance", "admin"] },
+  { to: "/dashboard", label: "Dashboard", icon: "monitoring", roles: ["finance", "admin"] },
+  { to: "/chat", label: "Assistant", icon: "forum", roles: ["staff", "finance", "admin"] },
   { to: "/audit", label: "Audit Log", icon: "history", roles: ["admin"] },
   { to: "/performance", label: "Model Speed", icon: "speed", roles: ["admin"] },
   { to: "/admin/settings", label: "Settings", icon: "settings", roles: ["admin"] },

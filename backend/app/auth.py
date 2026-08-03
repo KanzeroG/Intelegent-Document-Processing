@@ -30,8 +30,8 @@ from . import db
 
 
 class Role(str, Enum):
-    USER = "user"
     STAFF = "staff"
+    FINANCE = "finance"
     ADMIN = "admin"
 
 
@@ -112,9 +112,9 @@ def get_current_user(
             except ValueError as exc:
                 raise HTTPException(status_code=401, detail="Invalid or expired session.") from exc
     try:
-        role = Role(x_role) if x_role else Role.USER
+        role = Role(x_role) if x_role else Role.STAFF
     except ValueError:
-        role = Role.USER
+        role = Role.STAFF
     return AuthUser(email=None, name=role.value.capitalize(), role=role)
 
 

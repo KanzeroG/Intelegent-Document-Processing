@@ -19,7 +19,7 @@ from app.auth import AuthUser, Role, create_token
 from app.main import app
 
 ADMIN = {"X-Role": "admin"}
-USER = {"X-Role": "user"}
+STAFF = {"X-Role": "staff"}
 
 
 @pytest.fixture()
@@ -39,7 +39,7 @@ def client(fresh_db):
 
 
 def test_password_hashing_roundtrip(fresh_db):
-    fresh_db.insert_user("a@demo", "A", "user", "secret")
+    fresh_db.insert_user("a@demo", "A", "staff", "secret")
     u = fresh_db.get_user("a@demo")
     assert u is not None
     # Stored value is hashed (salt$digest), never the plaintext.
@@ -68,7 +68,7 @@ def test_list_users_omits_password(fresh_db):
 
 
 def test_delete_user_helper(fresh_db):
-    fresh_db.insert_user("gone@demo", "G", "user", "pw")
+    fresh_db.insert_user("gone@demo", "G", "staff", "pw")
     assert fresh_db.delete_user("gone@demo") is True
     assert fresh_db.delete_user("gone@demo") is False
     assert fresh_db.get_user("gone@demo") is None
@@ -89,7 +89,7 @@ def test_settings_roundtrip_and_types(fresh_db):
 
 def test_get_settings_admin_ok_user_forbidden(client):
     assert client.get("/admin/settings", headers=ADMIN).status_code == 200
-    assert client.get("/admin/settings", headers=USER).status_code == 403
+    assert client.get("/admin/settings", headers=STAFF).status_code == 403
 
 
 def test_patch_settings_persists_and_audits(client):
@@ -106,7 +106,7 @@ def test_patch_settings_empty_body_is_400(client):
 
 
 def test_users_endpoint_requires_admin(client):
-    assert client.get("/admin/users", headers=USER).status_code == 403
+    assert client.get("/admin/users", headers=STAFF).status_code == 403
 
 
 def test_create_user_then_login(client):
@@ -125,7 +125,7 @@ def test_create_user_then_login(client):
 
 
 def test_create_duplicate_user_is_409(client):
-    body = {"email": "dup@demo", "name": "D", "role": "user", "password": "pw"}
+    body = {"email": "dup@demo", "name": "D", "role": "staff", "password": "pw"}
     assert client.post("/admin/users", headers=ADMIN, json=body).status_code == 200
     assert client.post("/admin/users", headers=ADMIN, json=body).status_code == 409
 
@@ -143,7 +143,7 @@ def test_delete_user_endpoint(client):
     client.post(
         "/admin/users",
         headers=ADMIN,
-        json={"email": "temp@demo", "name": "T", "role": "user", "password": "pw"},
+        json={"email": "temp@demo", "name": "T", "role": "staff", "password": "pw"},
     )
     assert client.delete("/admin/users/temp@demo", headers=ADMIN).status_code == 200
     assert client.delete("/admin/users/temp@demo", headers=ADMIN).status_code == 404
@@ -163,7 +163,7 @@ def test_cannot_delete_own_account(client):
 
 # --- Approval: admin-only sign-off + the Archive timestamp -------------------
 
-STAFF = {"X-Role": "staff"}
+FINANCE = {"X-Role": "finance"}
 
 
 def _seed_doc(doc_id: str = "doc-1", status: str = "extracted") -> None:
