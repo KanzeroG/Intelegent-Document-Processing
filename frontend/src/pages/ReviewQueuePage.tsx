@@ -157,7 +157,10 @@ export default function ReviewQueuePage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl p-gutter">
+    // Wider than the other pages: the table needs 880px once the Uploaded by
+    // column is shown, which overflowed the shared max-w-6xl and forced a
+    // horizontal scroll on an ordinary screen.
+    <div className="mx-auto max-w-7xl p-gutter">
       <h1 className="text-headline-lg text-text-primary">Review Queue</h1>
       <p className="mt-1 text-body-md text-on-surface-variant">
         Manage and review extracted documents.

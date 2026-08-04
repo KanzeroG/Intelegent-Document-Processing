@@ -38,3 +38,5 @@ Thumbs.db
 # Local agent customizations / skills
 .agents/
 
+/WhatsApp Image *
+data/*.db.*

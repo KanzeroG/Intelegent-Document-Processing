@@ -4,7 +4,7 @@ import { useAuth, useDocuments } from "../store";
 import { API_BASE_URL, type Role } from "../api";
 
 const NAV: { to: string; label: string; icon: string; roles: Role[] }[] = [
-  { to: "/upload", label: "Upload", icon: "upload_file", roles: ["staff", "finance", "admin"] },
+  { to: "/upload", label: "Upload", icon: "upload_file", roles: ["staff"] },
   { to: "/review", label: "Review Queue", icon: "fact_check", roles: ["finance", "admin"] },
   { to: "/archive", label: "Archive", icon: "archive", roles: ["finance", "admin"] },
   { to: "/dashboard", label: "Dashboard", icon: "monitoring", roles: ["finance", "admin"] },

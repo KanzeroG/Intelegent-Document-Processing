@@ -170,6 +170,15 @@ async def extract(
             detail=f"Unknown model '{model}'. Available: {', '.join(MODEL_PROFILES)}.",
         )
 
+    # Uploading is the staff job. Finance reviews and admin decides, so neither
+    # puts documents in. Enforced here as well as in the UI, because hiding the
+    # nav item alone would leave the endpoint open to a direct call.
+    if user.email is not None and user.role != Role.STAFF:
+        raise HTTPException(
+            status_code=403,
+            detail="Uploading is restricted to the staff role.",
+        )
+
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")

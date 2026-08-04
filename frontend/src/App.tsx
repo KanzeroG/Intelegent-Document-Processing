@@ -35,9 +35,20 @@ export default function App() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route path="/upload" element={<UploadPage />} />
-        {/* The queue is the staff/admin worklist; a specific document stays
-            reachable for `user` so they can view their own results read-only. */}
+        {/* Uploading is the staff job. Finance reviews and admin decides, so
+            neither needs to put documents in, and keeping them out preserves
+            the separation: whoever entered a document is never the one who
+            approves it. */}
+        <Route
+          path="/upload"
+          element={
+            <RequireRole allow={["staff"]}>
+              <UploadPage />
+            </RequireRole>
+          }
+        />
+        {/* The queue is the finance/admin worklist; a specific document stays
+            reachable for `staff` so they can view their own results read-only. */}
         <Route
           path="/review"
           element={
