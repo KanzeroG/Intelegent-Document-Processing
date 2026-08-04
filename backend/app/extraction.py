@@ -112,7 +112,6 @@ MODEL_PROFILES: dict[str, ModelProfile] = {
     ),
 }
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "qwen")
-
 REQUEST_TIMEOUT = 300.0  # seconds; inference on the 4B VL model can be slow on 16GB
 
 
