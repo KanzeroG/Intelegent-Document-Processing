@@ -8,9 +8,13 @@ least-privileged role - so curl scripts and plain <a href> downloads (which
 cannot carry headers) keep working unchanged.
 
 Role responsibilities (see CLAUDE.md):
-  - user  : upload documents, view their own results (read-only review)
-  - staff : review flagged extractions, correct + approve/reject
-  - admin : run evaluations, bulk exports, dashboards / ROI
+  - staff   : upload documents, view their own results (read-only review)
+  - finance : review flagged extractions and correct them
+  - admin   : approve/reject, run evaluations, bulk exports, dashboards / ROI
+
+Note the X-Role fallback below resolves to `staff`, which is least-privileged
+for reads but IS the upload role — so POST /extract additionally requires a
+token-borne identity rather than trusting the header. See main.py.
 """
 
 from __future__ import annotations

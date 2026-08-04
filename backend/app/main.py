@@ -173,7 +173,15 @@ async def extract(
     # Uploading is the staff job. Finance reviews and admin decides, so neither
     # puts documents in. Enforced here as well as in the UI, because hiding the
     # nav item alone would leave the endpoint open to a direct call.
-    if user.email is not None and user.role != Role.STAFF:
+    #
+    # A tokenless caller is rejected outright rather than waved through on the
+    # X-Role stub. The read routes tolerate that stub so plain <a href> exports
+    # keep working, but an upload always comes from the SPA with a token, and
+    # trusting the header here would let anyone upload just by claiming a role
+    # — filing an ownerless document that no scoping rule can ever attribute.
+    if user.email is None:
+        raise HTTPException(status_code=401, detail="Sign in to upload documents.")
+    if user.role != Role.STAFF:
         raise HTTPException(
             status_code=403,
             detail="Uploading is restricted to the staff role.",
@@ -202,7 +210,7 @@ async def extract(
     rec["filename"] = file.filename
     rec["mime"] = file.content_type or "application/octet-stream"
     rec["uploaded_at"] = date.today().isoformat()
-    rec["uploaded_by"] = user.email  # None for tokenless (X-Role fallback) callers
+    rec["uploaded_by"] = user.email  # always set — the guard above rejects tokenless callers
     rec["processing_time"] = duration
     # Record which model produced this extraction - without it an A/B run can't
     # be attributed after the fact.

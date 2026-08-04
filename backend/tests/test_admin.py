@@ -220,3 +220,38 @@ def test_leaving_approved_clears_the_stamp(client):
     # stale date behind for a re-approval to inherit.
     client.patch("/documents/doc-3", headers=ADMIN, json={"status": "rejected"})
     assert db.get_document("doc-3")["approved_at"] is None
+
+
+# --- Upload: staff-only, and only with a real identity -----------------------
+#
+# These assert the guard, not the pipeline: POST /extract checks the caller
+# before it reads the file, so a dummy payload is rejected without ever
+# reaching the vision model.
+
+UPLOAD = {"file": ("x.pdf", b"%PDF-", "application/pdf")}
+
+
+def _token_headers(email: str, role: Role) -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_token(AuthUser(email=email, name='T', role=role))}"}
+
+
+@pytest.mark.parametrize("role", [Role.FINANCE, Role.ADMIN])
+def test_only_staff_may_upload(client, role):
+    # Separation of duties: whoever files a document is never the one who
+    # reviews or approves it.
+    r = client.post("/extract", headers=_token_headers(f"{role.value}@demo", role), files=UPLOAD)
+    assert r.status_code == 403
+
+
+def test_upload_requires_a_token_not_just_a_header(client):
+    # The X-Role stub defaults to `staff`, so without an identity check an
+    # unauthenticated caller could upload — with any role they cared to claim.
+    for headers in ({}, STAFF, ADMIN):
+        assert client.post("/extract", headers=headers, files=UPLOAD).status_code == 401
+
+
+def test_staff_upload_passes_the_guard(client):
+    # Reaches the pipeline, so it fails on the empty-file / parse check rather
+    # than on the role — anything but 401/403 proves the guard let staff past.
+    r = client.post("/extract", headers=_token_headers("staff@demo", Role.STAFF), files=UPLOAD)
+    assert r.status_code not in (401, 403)
