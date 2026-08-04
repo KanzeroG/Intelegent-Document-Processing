@@ -28,8 +28,8 @@ export default function ReviewQueuePage() {
   const { docs, loading: docsLoading, loadError, reload } = useDocuments();
   const navigate = useNavigate();
 
-  const showUploader = role !== "user";
-  const canExport = role === "staff" || role === "admin";
+  const showUploader = role !== "staff";
+  const canExport = role === "finance" || role === "admin";
 
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");

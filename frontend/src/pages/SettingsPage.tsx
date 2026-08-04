@@ -17,7 +17,7 @@ import {
 } from "../api";
 import { useAuth } from "../store";
 
-const ROLES: Role[] = ["user", "staff", "admin"];
+const ROLES: Role[] = ["staff", "finance", "admin"];
 
 // Shared input styling (matches UploadPage's controls). `mt-1.5` assumes the
 // control sits under a <Field> label span.
@@ -197,7 +197,7 @@ function UserManagementCard() {
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<Role>("user");
+  const [role, setRole] = useState<Role>("staff");
   const [password, setPassword] = useState("");
   const [creating, setCreating] = useState(false);
   const [busyEmail, setBusyEmail] = useState<string | null>(null);
@@ -232,7 +232,7 @@ function UserManagementCard() {
       toast.success(`Added ${email.trim().toLowerCase()}.`);
       setEmail("");
       setName("");
-      setRole("user");
+      setRole("staff");
       setPassword("");
       await load();
     } catch (err) {

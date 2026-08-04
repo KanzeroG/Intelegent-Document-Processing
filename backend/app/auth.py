@@ -30,8 +30,8 @@ from . import db
 
 
 class Role(str, Enum):
-    USER = "user"
     STAFF = "staff"
+    FINANCE = "finance"
     ADMIN = "admin"
 
 
@@ -68,7 +68,7 @@ def authenticate(email: str, password: str) -> AuthUser | None:
     return AuthUser(email=u["email"], name=u["name"], role=Role(u["role"]))
 
 
-def create_token(user: AuthUser) -> str:
+def create_token(staff: AuthUser) -> str:
     """Token format: b64url(claims JSON) + '.' + b64url(HMAC-SHA256 signature)."""
     payload = json.dumps(
         {"sub": user.email, "name": user.name, "role": user.role.value, "iat": int(time.time())},
@@ -112,12 +112,12 @@ def get_current_user(
             except ValueError as exc:
                 raise HTTPException(status_code=401, detail="Invalid or expired session.") from exc
     try:
-        role = Role(x_role) if x_role else Role.USER
+        role = Role(x_role) if x_role else Role.STAFF
     except ValueError:
-        role = Role.USER
+        role = Role.STAFF
     return AuthUser(email=None, name=role.value.capitalize(), role=role)
 
 
-def get_current_role(user: AuthUser = Depends(get_current_user)) -> Role:
+def get_current_role(staff: AuthUser = Depends(get_current_user)) -> Role:
     """FastAPI dependency: just the caller's role (see get_current_user)."""
     return user.role

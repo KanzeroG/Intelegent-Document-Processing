@@ -81,7 +81,7 @@ export default function ReviewPage() {
       ? undefined
       : (docs.find((d) => d.status === "flagged" || d.status === "in_review") ?? docs[0]));
 
-  const canEdit = role === "staff" || role === "admin";
+  const canEdit = role === "finance" || role === "admin";
 
   if (!rec) {
     if (loading) {
@@ -345,7 +345,7 @@ function ReviewEditor({ rec, canEdit }: { rec: DocRecord; canEdit: boolean }) {
             {!canEdit && (
               <div className="mt-3 flex items-center gap-2 rounded-lg bg-surface-container-low px-3 py-2.5 text-body-sm text-on-surface-variant">
                 <span className="material-symbols-outlined text-base">visibility</span>
-                Read-only view — a staff member reviews and approves this document.
+                Read-only view — a finance member reviews and approves this document.
               </div>
             )}
 

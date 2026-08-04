@@ -7,7 +7,7 @@ import type { Role } from "../api";
 // Each role's landing page: where they do their actual job.
 export function roleHome(role: Role): string {
   if (role === "admin") return "/dashboard";
-  if (role === "staff") return "/review";
+  if (role === "finance") return "/review";
   return "/upload";
 }
 

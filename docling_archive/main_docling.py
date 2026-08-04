@@ -16,6 +16,9 @@ model directly.
 from __future__ import annotations
 
 import uuid
+import csv
+import json
+from pathlib import Path
 from datetime import date
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
@@ -25,7 +28,7 @@ from pydantic import BaseModel
 
 from . import db, evaluation, export, rag
 from .auth import AuthUser, Role, authenticate, create_token, get_current_role, get_current_user
-from .extraction import MODEL_PROFILES, ExtractionError, extract_document, get_profile
+from .extraction import ExtractionError, extract_document
 from .loaders import load_document_as_base64_png
 from .schemas import Document, DocumentType, missing_fields
 from .validation import ValidationIssue, validate_document
@@ -76,13 +79,13 @@ def _record(doc: Document, issues: list[ValidationIssue]) -> dict:
     }
 
 
-# Token-authenticated `user` callers only see their own documents; finance/admin
+# Token-authenticated `user` callers only see their own documents; staff/admin
 # (and tokenless callers, e.g. plain <a href> downloads) see everything.
-def _is_scoped_user(staff: AuthUser) -> bool:
+def _is_scoped_user(user: AuthUser) -> bool:
     return user.email is not None and user.role == Role.STAFF
 
 
-def _get_visible_document(doc_id: str, staff: AuthUser) -> dict:
+def _get_visible_document(doc_id: str, user: AuthUser) -> dict:
     """Fetch a record, hiding other uploaders' docs from `user`-role callers.
     404 (not 403) so document ids don't leak existence."""
     rec = db.get_document(doc_id)
@@ -107,7 +110,7 @@ class LoginBody(BaseModel):
 def auth_login(body: LoginBody) -> dict:
     """Check demo credentials and issue a signed session token."""
     user = authenticate(body.email, body.password)
-    if not staff:
+    if not user:
         db.add_audit(actor=body.email.strip().lower(), role=None, action="login_failed",
                      detail="Invalid credentials.")
         raise HTTPException(status_code=401, detail="Invalid email or password.")
@@ -116,75 +119,66 @@ def auth_login(body: LoginBody) -> dict:
 
 
 @app.get("/auth/me")
-def auth_me(staff: AuthUser = Depends(get_current_user)) -> dict:
+def auth_me(user: AuthUser = Depends(get_current_user)) -> dict:
     """Validate a persisted session (the SPA calls this after a page refresh)."""
     if user.email is None:
         raise HTTPException(status_code=401, detail="Not signed in.")
     return {"email": user.email, "role": user.role.value, "name": user.name}
 
 
-@app.get("/models")
-def list_models() -> list[dict]:
-    """Vision models /extract can be pointed at (for the upload-page picker).
-
-    `configured` is False when a profile needs an API key that isn't set, so the
-    picker can disable it instead of failing at extraction time. `remote` marks
-    models that send documents off this machine.
-
-    The `default_*` flags report which profile each surface falls back to
-    (DEFAULT_MODEL / CHAT_MODEL). Without them a picker would have to guess a
-    default, and by always sending it explicitly would render those env vars
-    dead. Never returns key material.
-    """
-    return [
-        {
-            "key": p.key,
-            "label": p.label,
-            "model": p.model,
-            "configured": p.configured,
-            "remote": p.remote,
-            "default_extract": p.key == get_profile(None).key,
-            "default_chat": p.key == get_profile(rag.CHAT_PROFILE).key,
-        }
-        for p in MODEL_PROFILES.values()
-    ]
-
-
 @app.post("/extract")
 async def extract(
     file: UploadFile = File(...),
     doc_type: DocumentType = Form(DocumentType.INVOICE),
-    model: str | None = Form(None),
-    staff: AuthUser = Depends(get_current_user),
+    batch_id: str | None = Form(None),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
-    """Load an uploaded document, extract + validate, persist, and return the record.
-
-    `model` selects a vision model by MODEL_PROFILES key (e.g. "minicpm"); omitted
-    means the default. An unknown key is rejected rather than silently falling
-    back, so a typo in an A/B run can't be mistaken for a result from the model
-    you meant to test.
-    """
-    if model is not None and model not in MODEL_PROFILES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unknown model '{model}'. Available: {', '.join(MODEL_PROFILES)}.",
-        )
-
+    """Load an uploaded document, extract + validate, persist, and return the record."""
     raw = await file.read()
     if not raw:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    try:
-        image_b64 = load_document_as_base64_png(raw, file.content_type, file.filename)
-    except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"Could not read document: {exc}") from exc
-
     import time
     start_time = time.perf_counter()
-    try:
-        document = extract_document(image_b64, doc_type, model=model)
-    except ExtractionError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    name = (file.filename or "").lower()
+    is_pdf = (file.content_type == "application/pdf") or name.endswith(".pdf")
+    document = None
+
+    if is_pdf:
+        import tempfile
+        import os
+        from .extraction import extract_document_text
+        try:
+            from docling.document_converter import DocumentConverter
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(raw)
+                tmp_path = tmp.name
+                
+            try:
+                converter = DocumentConverter()
+                doc_result = converter.convert(tmp_path)
+                markdown_text = doc_result.document.export_to_markdown()
+                document = extract_document_text(markdown_text, doc_type)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+        except Exception as e:
+            print(f"Docling extraction failed: {e}, falling back to vision.")
+            document = None
+
+    if document is None:
+        try:
+            image_b64 = load_document_as_base64_png(raw, file.content_type, file.filename)
+        except Exception as exc:
+            raise HTTPException(status_code=422, detail=f"Could not read document: {exc}") from exc
+
+        try:
+            document = extract_document(image_b64, doc_type)
+        except ExtractionError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
     duration = time.perf_counter() - start_time
 
     issues = validate_document(document)
@@ -195,34 +189,52 @@ async def extract(
     rec["uploaded_at"] = date.today().isoformat()
     rec["uploaded_by"] = user.email  # None for tokenless (X-Role fallback) callers
     rec["processing_time"] = duration
-    # Record which model produced this extraction — without it an A/B run can't
-    # be attributed after the fact.
-    profile = get_profile(model)
-    rec["model"] = profile.key
 
     db.insert_document(rec, raw)  # cache the extraction + original file
     db.add_audit(
         actor=user.email, role=user.role.value, action="upload", doc_id=rec["id"],
-        detail=(
-            f"Extracted '{file.filename}' as {doc_type.value} -> {rec['status']} "
-            f"via {profile.label} in {duration:.1f}s."
-        ),
+        detail=f"Extracted '{file.filename}' as {doc_type.value} -> {rec['status']}.",
     )
+
+    if batch_id:
+        batch_dir = Path(__file__).resolve().parents[2] / "data" / "batches" / batch_id
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        times_file = batch_dir / "times.csv"
+        file_exists = times_file.exists()
+        with times_file.open("a", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            if not file_exists:
+                w.writerow(["filename", "processing_time"])
+            w.writerow([file.filename, duration])
+        
+        extracted_jsonl = batch_dir / "extracted.jsonl"
+        with extracted_jsonl.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec) + "\n")
+
     return {k: v for k, v in rec.items() if k != "file"}
 
 
+@app.post("/batches/{batch_id}/finalize")
+def finalize_batch(batch_id: str, user: AuthUser = Depends(get_current_user)) -> dict:
+    from .batch_eval import generate_batch_charts
+    try:
+        generate_batch_charts(batch_id)
+        return {"status": "ok", "message": f"Batch charts generated at data/batches/{batch_id}/"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/documents")
-def list_documents(staff: AuthUser = Depends(get_current_user)) -> list[dict]:
+def list_documents(user: AuthUser = Depends(get_current_user)) -> list[dict]:
     return db.list_documents(uploaded_by=user.email if _is_scoped_user(user) else None)
 
 
 @app.get("/documents/{doc_id}")
-def get_document(doc_id: str, staff: AuthUser = Depends(get_current_user)) -> dict:
+def get_document(doc_id: str, user: AuthUser = Depends(get_current_user)) -> dict:
     return _get_visible_document(doc_id, user)
 
 
 @app.get("/documents/{doc_id}/file")
-def get_document_file(doc_id: str, staff: AuthUser = Depends(get_current_user)) -> Response:
+def get_document_file(doc_id: str, user: AuthUser = Depends(get_current_user)) -> Response:
     _get_visible_document(doc_id, user)
     got = db.get_file(doc_id)
     if not got:
@@ -234,7 +246,7 @@ def get_document_file(doc_id: str, staff: AuthUser = Depends(get_current_user)) 
 
 
 @app.get("/documents/{doc_id}/export.json")
-def export_json(doc_id: str, staff: AuthUser = Depends(get_current_user)) -> Response:
+def export_json(doc_id: str, user: AuthUser = Depends(get_current_user)) -> Response:
     rec = _get_visible_document(doc_id, user)
     db.add_audit(actor=user.email, role=user.role.value, action="export",
                  doc_id=doc_id, detail="Exported JSON.")
@@ -246,7 +258,7 @@ def export_json(doc_id: str, staff: AuthUser = Depends(get_current_user)) -> Res
 
 
 @app.get("/documents/{doc_id}/export.csv")
-def export_csv(doc_id: str, staff: AuthUser = Depends(get_current_user)) -> Response:
+def export_csv(doc_id: str, user: AuthUser = Depends(get_current_user)) -> Response:
     rec = _get_visible_document(doc_id, user)
     db.add_audit(actor=user.email, role=user.role.value, action="export",
                  doc_id=doc_id, detail="Exported CSV.")
@@ -267,7 +279,7 @@ def require_admin(role: Role = Depends(get_current_role)) -> Role:
 @app.post("/eval/run")
 def eval_run(
     limit: int | None = None,
-    staff: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
     _: Role = Depends(require_admin),
 ) -> dict:
     """Start a background accuracy evaluation (admin only). Returns immediately."""
@@ -290,99 +302,8 @@ def audit_log(limit: int = 200, _: Role = Depends(require_admin)) -> list[dict]:
     return db.list_audit(limit=limit)
 
 
-# --- admin: validation settings + user management ----------------------------
-
-class SettingsBody(BaseModel):
-    """Editable validation settings. Omitted (None) fields are left unchanged."""
-
-    ppn_rate: float | None = None
-    reconcile_tolerance: int | None = None
-    low_confidence_threshold: float | None = None
-
-
-@app.get("/admin/settings")
-def admin_get_settings(_: Role = Depends(require_admin)) -> dict:
-    """Current validation configuration (admin only)."""
-    return db.get_settings()
-
-
-@app.patch("/admin/settings")
-def admin_update_settings(
-    body: SettingsBody,
-    staff: AuthUser = Depends(get_current_user),
-    _: Role = Depends(require_admin),
-) -> dict:
-    """Update validation settings (admin only). Subsequent extractions/re-validations
-    pick these up via db.get_settings() — see validation.py."""
-    updates: dict = {}
-    if body.ppn_rate is not None:
-        updates["ppn_rate"] = max(0.0, min(1.0, body.ppn_rate))
-    if body.reconcile_tolerance is not None:
-        updates["reconcile_tolerance"] = max(0, body.reconcile_tolerance)
-    if body.low_confidence_threshold is not None:
-        updates["low_confidence_threshold"] = max(0.0, min(1.0, body.low_confidence_threshold))
-    if not updates:
-        raise HTTPException(status_code=400, detail="No settings provided.")
-    db.update_settings(updates)
-    db.add_audit(
-        actor=user.email, role=user.role.value, action="settings_update",
-        detail="Updated settings: " + ", ".join(f"{k}={v}" for k, v in updates.items()) + ".",
-    )
-    return db.get_settings()
-
-
-class NewUserBody(BaseModel):
-    """A user to create. `role` is validated against the Role enum (422 on a bad value)."""
-
-    email: str
-    name: str
-    role: Role
-    password: str
-
-
-@app.get("/admin/users")
-def admin_list_users(_: Role = Depends(require_admin)) -> list[dict]:
-    """All registered users (admin only); never includes password hashes."""
-    return db.list_users()
-
-
-@app.post("/admin/users")
-def admin_create_user(
-    body: NewUserBody,
-    staff: AuthUser = Depends(get_current_user),
-    _: Role = Depends(require_admin),
-) -> dict:
-    """Create a user (admin only). 409 if the email is already taken."""
-    email = body.email.strip().lower()
-    if not email or not body.password:
-        raise HTTPException(status_code=400, detail="Email and password are required.")
-    if db.get_user(email):
-        raise HTTPException(status_code=409, detail="A user with that email already exists.")
-    db.insert_user(email, body.name, body.role.value, body.password)
-    db.add_audit(actor=user.email, role=user.role.value, action="user_create",
-                 detail=f"Created user {email} ({body.role.value}).")
-    return {"email": email, "name": body.name.strip(), "role": body.role.value}
-
-
-@app.delete("/admin/users/{email}")
-def admin_delete_user(
-    email: str,
-    staff: AuthUser = Depends(get_current_user),
-    _: Role = Depends(require_admin),
-) -> dict:
-    """Delete a user (admin only). Deleting your own account is blocked to avoid lockout."""
-    target = email.strip().lower()
-    if user.email and target == user.email:
-        raise HTTPException(status_code=400, detail="You cannot delete your own account.")
-    if not db.delete_user(target):
-        raise HTTPException(status_code=404, detail="User not found.")
-    db.add_audit(actor=user.email, role=user.role.value, action="user_delete",
-                 detail=f"Deleted user {target}.")
-    return {"deleted": True}
-
-
 @app.get("/exports/documents.csv")
-def export_all_csv(status: str = "approved", staff: AuthUser = Depends(get_current_user)) -> Response:
+def export_all_csv(status: str = "approved", user: AuthUser = Depends(get_current_user)) -> Response:
     """Bulk CSV of documents, filtered by status (default: approved). Use
     status=all to export everything. One row per doc, ground_truth columns."""
     records = db.list_documents()
@@ -404,7 +325,7 @@ class SelectedExportBody(BaseModel):
 
 @app.post("/exports/selected.csv")
 def export_selected_csv(
-    body: SelectedExportBody, staff: AuthUser = Depends(get_current_user)
+    body: SelectedExportBody, user: AuthUser = Depends(get_current_user)
 ) -> Response:
     """CSV of a hand-picked set of documents (from the My Documents table).
 
@@ -412,7 +333,7 @@ def export_selected_csv(
     the export/review surface. Only documents the caller can see are included,
     returned in the order they were selected."""
     if _is_scoped_user(user):
-        raise HTTPException(status_code=403, detail="Reviewer (finance/admin) role required.")
+        raise HTTPException(status_code=403, detail="Reviewer (staff/admin) role required.")
     by_id = {r["id"]: r for r in db.list_documents()}
     records = [by_id[i] for i in body.ids if i in by_id]
     if not records:
@@ -450,11 +371,11 @@ class PatchBody(BaseModel):
 
 
 @app.patch("/documents/{doc_id}")
-def patch_document(doc_id: str, body: PatchBody, staff: AuthUser = Depends(get_current_user)) -> dict:
-    # Review is a finance/admin responsibility. Only token-authenticated `user`
+def patch_document(doc_id: str, body: PatchBody, user: AuthUser = Depends(get_current_user)) -> dict:
+    # Review is a staff/admin responsibility. Only token-authenticated `user`
     # callers are rejected — tokenless callers keep the original open behavior.
     if _is_scoped_user(user):
-        raise HTTPException(status_code=403, detail="Reviewer (finance/admin) role required.")
+        raise HTTPException(status_code=403, detail="Reviewer (staff/admin) role required.")
     existing = db.get_document(doc_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -493,37 +414,11 @@ def patch_document(doc_id: str, body: PatchBody, staff: AuthUser = Depends(get_c
     return db.get_document(doc_id)  # type: ignore[return-value]
 
 
-@app.delete("/documents/{doc_id}")
-def delete_document(doc_id: str, staff: AuthUser = Depends(get_current_user), _: Role = Depends(require_admin)) -> dict:
-    """Permanently delete a document and its data (Admin only)."""
-    if not db.get_document(doc_id):
-        raise HTTPException(status_code=404, detail="Document not found")
-    if not db.delete_document(doc_id):
-        raise HTTPException(status_code=500, detail="Failed to delete document")
-    db.add_audit(actor=user.email, role=user.role.value, action="delete",
-                 doc_id=doc_id, detail="Document permanently deleted.")
-    return {"deleted": True}
-
-
 # --- RAG chat (bonus) ---------------------------------------------------------
 
 class ChatRequest(BaseModel):
     question: str
     doc_id: str | None = None
-    model: str | None = None  # MODEL_PROFILES key; None = the configured default
-    history: list[dict[str, str]] | None = None
-    session_id: str | None = None
-
-class ChatSessionItem(BaseModel):
-    id: str
-    title: str
-    created_at: str
-    updated_at: str
-    scope_doc_id: str | None
-
-class ChatSessionDetails(ChatSessionItem):
-    messages: list[dict[str, Any]]
-
 
 
 class ChatCitation(BaseModel):
@@ -534,30 +429,19 @@ class ChatCitation(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     citations: list[ChatCitation]
-    session_id: str
-
 
 
 @app.post("/chat")
-def chat(body: ChatRequest, staff: AuthUser = Depends(get_current_user)) -> ChatResponse:
+def chat(body: ChatRequest, user: AuthUser = Depends(get_current_user)) -> ChatResponse:
     """Answer a question grounded in the caller's extracted documents.
 
     With doc_id: that document's full JSON is the context. Without: the top
     embedding matches across all visible documents are. `user`-role callers are
     scoped to their own uploads, same as GET /documents.
-
-    `model` picks a vision/chat model by MODEL_PROFILES key; omitted uses the
-    configured chat default (local qwen), so answering never leaves this machine
-    unless asked to. An unknown key is rejected rather than silently falling back.
     """
     question = body.question.strip()
     if not question:
         raise HTTPException(status_code=400, detail="Question is empty.")
-    if body.model is not None and body.model not in MODEL_PROFILES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unknown model '{body.model}'. Available: {', '.join(MODEL_PROFILES)}.",
-        )
 
     visible = db.list_documents(uploaded_by=user.email if _is_scoped_user(user) else None)
     target = None
@@ -566,66 +450,11 @@ def chat(body: ChatRequest, staff: AuthUser = Depends(get_current_user)) -> Chat
         if target is None:
             raise HTTPException(status_code=404, detail="Document not found.")
 
-    session_id = body.session_id
-    history_to_use = body.history or []
-    is_new_session = False
-    
-    if session_id:
-        session = db.get_chat_session(session_id, user.email or "")
-        if session:
-            # Use backend history instead if it exists
-            history_to_use = session.get("messages", [])
-    else:
-        is_new_session = True
-        session_id = uuid.uuid4().hex
-
     try:
-        answer, citations = rag.answer_question(question, visible, target, model=body.model, history=history_to_use)
+        answer, citations = rag.answer_question(question, visible, target)
     except rag.ChatError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-        
-    # Persist session
-    new_messages = history_to_use + [
-        {"role": "user", "content": question},
-        {"role": "assistant", "content": answer}
-    ]
-    
-    if is_new_session:
-        title = rag.generate_chat_title(question, body.model)
-        db.create_chat_session(session_id, title, user.email or "", body.doc_id, new_messages)
-    else:
-        db.update_chat_session(session_id, user.email or "", new_messages)
-
     return ChatResponse(
         answer=answer,
         citations=[ChatCitation(**c) for c in citations],
-        session_id=session_id
     )
-
-@app.get("/chat/sessions")
-def list_chat_sessions(staff: AuthUser = Depends(get_current_user)) -> list[dict]:
-    """List all chat sessions for the current user."""
-    if not user.email:
-        raise HTTPException(status_code=401, detail="Must be logged in.")
-    return db.get_chat_sessions(user.email)
-
-
-@app.get("/chat/sessions/{session_id}")
-def get_chat_session(session_id: str, staff: AuthUser = Depends(get_current_user)) -> dict:
-    """Get a specific chat session with its full message history."""
-    if not user.email:
-        raise HTTPException(status_code=401, detail="Must be logged in.")
-    session = db.get_chat_session(session_id, user.email)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found.")
-    return session
-
-
-@app.delete("/chat/sessions/{session_id}")
-def delete_chat_session(session_id: str, staff: AuthUser = Depends(get_current_user)) -> dict:
-    """Delete a chat session."""
-    if not user.email:
-        raise HTTPException(status_code=401, detail="Must be logged in.")
-    if not db.delete_chat_session(session_id, user.email):
-        raise HTTPException(status_code=404, detail="Session not found.")
-    return {"deleted": True}

@@ -35,12 +35,12 @@ export default function App() {
     <Routes>
       <Route element={<AppShell />}>
         <Route path="/upload" element={<UploadPage />} />
-        {/* The queue is the staff/admin worklist; a specific document stays
+        {/* The queue is the finance/admin worklist; a specific document stays
             reachable for `user` so they can view their own results read-only. */}
         <Route
           path="/review"
           element={
-            <RequireRole allow={["staff", "admin"]}>
+            <RequireRole allow={["finance", "admin"]}>
               <ReviewQueuePage />
             </RequireRole>
           }
@@ -49,7 +49,7 @@ export default function App() {
         <Route
           path="/dashboard"
           element={
-            <RequireRole allow={["staff", "admin"]}>
+            <RequireRole allow={["finance", "admin"]}>
               <DashboardPage />
             </RequireRole>
           }
