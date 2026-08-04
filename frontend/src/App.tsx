@@ -49,7 +49,7 @@ export default function App() {
         <Route
           path="/dashboard"
           element={
-            <RequireRole allow={["finance", "admin"]}>
+            <RequireRole allow={["admin"]}>
               <DashboardPage />
             </RequireRole>
           }
