@@ -90,7 +90,7 @@ _DEFAULT_SETTINGS = {
 }
 
 _DEFAULT_USERS = {
-    "staff@demo": {"name": "Demo Staff", "role": "user", "password": "staff123"},
+    "staff@demo": {"name": "Demo Staff", "role": "staff", "password": "staff123"},
     "finance@demo": {"name": "Demo Finance", "role": "finance", "password": "finance123"},
     "admin@demo": {"name": "Demo Admin", "role": "admin", "password": "admin123"},
 }

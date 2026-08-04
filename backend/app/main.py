@@ -78,11 +78,11 @@ def _record(doc: Document, issues: list[ValidationIssue]) -> dict:
 
 # Token-authenticated `user` callers only see their own documents; finance/admin
 # (and tokenless callers, e.g. plain <a href> downloads) see everything.
-def _is_scoped_user(staff: AuthUser) -> bool:
+def _is_scoped_user(user: AuthUser) -> bool:
     return user.email is not None and user.role == Role.STAFF
 
 
-def _get_visible_document(doc_id: str, staff: AuthUser) -> dict:
+def _get_visible_document(doc_id: str, user: AuthUser) -> dict:
     """Fetch a record, hiding other uploaders' docs from `user`-role callers.
     404 (not 403) so document ids don't leak existence."""
     rec = db.get_document(doc_id)
@@ -107,7 +107,7 @@ class LoginBody(BaseModel):
 def auth_login(body: LoginBody) -> dict:
     """Check demo credentials and issue a signed session token."""
     user = authenticate(body.email, body.password)
-    if not staff:
+    if not user:
         db.add_audit(actor=body.email.strip().lower(), role=None, action="login_failed",
                      detail="Invalid credentials.")
         raise HTTPException(status_code=401, detail="Invalid email or password.")
@@ -116,7 +116,7 @@ def auth_login(body: LoginBody) -> dict:
 
 
 @app.get("/auth/me")
-def auth_me(staff: AuthUser = Depends(get_current_user)) -> dict:
+def auth_me(user: AuthUser = Depends(get_current_user)) -> dict:
     """Validate a persisted session (the SPA calls this after a page refresh)."""
     if user.email is None:
         raise HTTPException(status_code=401, detail="Not signed in.")
@@ -155,7 +155,7 @@ async def extract(
     file: UploadFile = File(...),
     doc_type: DocumentType = Form(DocumentType.INVOICE),
     model: str | None = Form(None),
-    staff: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
 ) -> dict:
     """Load an uploaded document, extract + validate, persist, and return the record.
 
@@ -212,17 +212,17 @@ async def extract(
 
 
 @app.get("/documents")
-def list_documents(staff: AuthUser = Depends(get_current_user)) -> list[dict]:
+def list_documents(user: AuthUser = Depends(get_current_user)) -> list[dict]:
     return db.list_documents(uploaded_by=user.email if _is_scoped_user(user) else None)
 
 
 @app.get("/documents/{doc_id}")
-def get_document(doc_id: str, staff: AuthUser = Depends(get_current_user)) -> dict:
+def get_document(doc_id: str, user: AuthUser = Depends(get_current_user)) -> dict:
     return _get_visible_document(doc_id, user)
 
 
 @app.get("/documents/{doc_id}/file")
-def get_document_file(doc_id: str, staff: AuthUser = Depends(get_current_user)) -> Response:
+def get_document_file(doc_id: str, user: AuthUser = Depends(get_current_user)) -> Response:
     _get_visible_document(doc_id, user)
     got = db.get_file(doc_id)
     if not got:
@@ -234,7 +234,7 @@ def get_document_file(doc_id: str, staff: AuthUser = Depends(get_current_user)) 
 
 
 @app.get("/documents/{doc_id}/export.json")
-def export_json(doc_id: str, staff: AuthUser = Depends(get_current_user)) -> Response:
+def export_json(doc_id: str, user: AuthUser = Depends(get_current_user)) -> Response:
     rec = _get_visible_document(doc_id, user)
     db.add_audit(actor=user.email, role=user.role.value, action="export",
                  doc_id=doc_id, detail="Exported JSON.")
@@ -246,7 +246,7 @@ def export_json(doc_id: str, staff: AuthUser = Depends(get_current_user)) -> Res
 
 
 @app.get("/documents/{doc_id}/export.csv")
-def export_csv(doc_id: str, staff: AuthUser = Depends(get_current_user)) -> Response:
+def export_csv(doc_id: str, user: AuthUser = Depends(get_current_user)) -> Response:
     rec = _get_visible_document(doc_id, user)
     db.add_audit(actor=user.email, role=user.role.value, action="export",
                  doc_id=doc_id, detail="Exported CSV.")
@@ -267,7 +267,7 @@ def require_admin(role: Role = Depends(get_current_role)) -> Role:
 @app.post("/eval/run")
 def eval_run(
     limit: int | None = None,
-    staff: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
     _: Role = Depends(require_admin),
 ) -> dict:
     """Start a background accuracy evaluation (admin only). Returns immediately."""
@@ -309,7 +309,7 @@ def admin_get_settings(_: Role = Depends(require_admin)) -> dict:
 @app.patch("/admin/settings")
 def admin_update_settings(
     body: SettingsBody,
-    staff: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
     _: Role = Depends(require_admin),
 ) -> dict:
     """Update validation settings (admin only). Subsequent extractions/re-validations
@@ -349,7 +349,7 @@ def admin_list_users(_: Role = Depends(require_admin)) -> list[dict]:
 @app.post("/admin/users")
 def admin_create_user(
     body: NewUserBody,
-    staff: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
     _: Role = Depends(require_admin),
 ) -> dict:
     """Create a user (admin only). 409 if the email is already taken."""
@@ -367,7 +367,7 @@ def admin_create_user(
 @app.delete("/admin/users/{email}")
 def admin_delete_user(
     email: str,
-    staff: AuthUser = Depends(get_current_user),
+    user: AuthUser = Depends(get_current_user),
     _: Role = Depends(require_admin),
 ) -> dict:
     """Delete a user (admin only). Deleting your own account is blocked to avoid lockout."""
@@ -382,7 +382,7 @@ def admin_delete_user(
 
 
 @app.get("/exports/documents.csv")
-def export_all_csv(status: str = "approved", staff: AuthUser = Depends(get_current_user)) -> Response:
+def export_all_csv(status: str = "approved", user: AuthUser = Depends(get_current_user)) -> Response:
     """Bulk CSV of documents, filtered by status (default: approved). Use
     status=all to export everything. One row per doc, ground_truth columns."""
     records = db.list_documents()
@@ -404,7 +404,7 @@ class SelectedExportBody(BaseModel):
 
 @app.post("/exports/selected.csv")
 def export_selected_csv(
-    body: SelectedExportBody, staff: AuthUser = Depends(get_current_user)
+    body: SelectedExportBody, user: AuthUser = Depends(get_current_user)
 ) -> Response:
     """CSV of a hand-picked set of documents (from the My Documents table).
 
@@ -450,7 +450,7 @@ class PatchBody(BaseModel):
 
 
 @app.patch("/documents/{doc_id}")
-def patch_document(doc_id: str, body: PatchBody, staff: AuthUser = Depends(get_current_user)) -> dict:
+def patch_document(doc_id: str, body: PatchBody, user: AuthUser = Depends(get_current_user)) -> dict:
     # Review is a finance/admin responsibility. Only token-authenticated `user`
     # callers are rejected — tokenless callers keep the original open behavior.
     if _is_scoped_user(user):
@@ -494,7 +494,7 @@ def patch_document(doc_id: str, body: PatchBody, staff: AuthUser = Depends(get_c
 
 
 @app.delete("/documents/{doc_id}")
-def delete_document(doc_id: str, staff: AuthUser = Depends(get_current_user), _: Role = Depends(require_admin)) -> dict:
+def delete_document(doc_id: str, user: AuthUser = Depends(get_current_user), _: Role = Depends(require_admin)) -> dict:
     """Permanently delete a document and its data (Admin only)."""
     if not db.get_document(doc_id):
         raise HTTPException(status_code=404, detail="Document not found")
@@ -539,7 +539,7 @@ class ChatResponse(BaseModel):
 
 
 @app.post("/chat")
-def chat(body: ChatRequest, staff: AuthUser = Depends(get_current_user)) -> ChatResponse:
+def chat(body: ChatRequest, user: AuthUser = Depends(get_current_user)) -> ChatResponse:
     """Answer a question grounded in the caller's extracted documents.
 
     With doc_id: that document's full JSON is the context. Without: the top
@@ -603,7 +603,7 @@ def chat(body: ChatRequest, staff: AuthUser = Depends(get_current_user)) -> Chat
     )
 
 @app.get("/chat/sessions")
-def list_chat_sessions(staff: AuthUser = Depends(get_current_user)) -> list[dict]:
+def list_chat_sessions(user: AuthUser = Depends(get_current_user)) -> list[dict]:
     """List all chat sessions for the current user."""
     if not user.email:
         raise HTTPException(status_code=401, detail="Must be logged in.")
@@ -611,7 +611,7 @@ def list_chat_sessions(staff: AuthUser = Depends(get_current_user)) -> list[dict
 
 
 @app.get("/chat/sessions/{session_id}")
-def get_chat_session(session_id: str, staff: AuthUser = Depends(get_current_user)) -> dict:
+def get_chat_session(session_id: str, user: AuthUser = Depends(get_current_user)) -> dict:
     """Get a specific chat session with its full message history."""
     if not user.email:
         raise HTTPException(status_code=401, detail="Must be logged in.")
@@ -622,7 +622,7 @@ def get_chat_session(session_id: str, staff: AuthUser = Depends(get_current_user
 
 
 @app.delete("/chat/sessions/{session_id}")
-def delete_chat_session(session_id: str, staff: AuthUser = Depends(get_current_user)) -> dict:
+def delete_chat_session(session_id: str, user: AuthUser = Depends(get_current_user)) -> dict:
     """Delete a chat session."""
     if not user.email:
         raise HTTPException(status_code=401, detail="Must be logged in.")

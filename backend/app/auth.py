@@ -68,7 +68,7 @@ def authenticate(email: str, password: str) -> AuthUser | None:
     return AuthUser(email=u["email"], name=u["name"], role=Role(u["role"]))
 
 
-def create_token(staff: AuthUser) -> str:
+def create_token(user: AuthUser) -> str:
     """Token format: b64url(claims JSON) + '.' + b64url(HMAC-SHA256 signature)."""
     payload = json.dumps(
         {"sub": user.email, "name": user.name, "role": user.role.value, "iat": int(time.time())},
@@ -118,6 +118,6 @@ def get_current_user(
     return AuthUser(email=None, name=role.value.capitalize(), role=role)
 
 
-def get_current_role(staff: AuthUser = Depends(get_current_user)) -> Role:
+def get_current_role(user: AuthUser = Depends(get_current_user)) -> Role:
     """FastAPI dependency: just the caller's role (see get_current_user)."""
     return user.role
